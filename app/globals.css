@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { scroll-behavior: smooth; }
+
+  body {
+    @apply bg-white text-gray-900 antialiased;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+}
+
+@layer components {
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           bg-[#3D1F0F] text-white text-xs font-medium
+           tracking-[0.12em] uppercase px-7 py-3.5
+           hover:bg-[#5C3020] active:scale-[0.98]
+           transition-all duration-150
+           focus:outline-none focus:ring-1 focus:ring-[#3D1F0F] focus:ring-offset-2;
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2
+           border border-[#3D1F0F] text-[#3D1F0F] text-xs font-medium
+           tracking-[0.12em] uppercase px-7 py-3.5
+           hover:bg-[#3D1F0F] hover:text-white active:scale-[0.98]
+           transition-all duration-150;
+  }
+
+  .btn-whatsapp {
+    @apply inline-flex items-center justify-center gap-2
+           bg-[#25D366] text-white text-xs font-medium
+           tracking-[0.12em] uppercase px-7 py-3.5
+           hover:bg-[#1ebe5d] active:scale-[0.98]
+           transition-all duration-150;
+  }
+
+  /* ── Inputs ── */
+  .input-field {
+    @apply w-full border border-gray-200 px-4 py-3 text-sm
+           focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900
+           transition-all bg-white placeholder:text-gray-400
+           rounded-none;
+  }
+
+  /* ── Tags / Badges — minimal, no pill shapes ── */
+  .tag {
+    @apply inline-block text-[10px] font-medium tracking-[0.15em] uppercase px-2 py-0.5 border;
+  }
+  .tag-dark  { @apply tag border-gray-900 text-gray-900 bg-white; }
+  .tag-muted { @apply tag border-gray-300 text-gray-400 bg-white; }
+  .tag-sale  { @apply tag border-gray-900 bg-gray-900 text-white; }
+
+  /* ── Typography ── */
+  .section-title {
+    @apply font-display text-3xl md:text-4xl font-semibold text-gray-900 tracking-tight leading-tight;
+  }
+  .section-eyebrow {
+    @apply text-[10px] font-medium uppercase tracking-[0.18em] text-gray-400;
+  }
+
+  /* ── Card ── */
+  .product-card {
+    @apply bg-white border border-gray-100 hover:border-gray-300 transition-all duration-300;
+  }
+}
+
+/* Sticky bar shadow */
+.sticky-cta { box-shadow: 0 -1px 0 #e5e7eb, 0 -8px 24px rgba(0,0,0,0.06); }
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+
+/* Drawer backdrop */
+.drawer-backdrop {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

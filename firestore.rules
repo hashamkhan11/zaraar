@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Orders ───────────────────────────────────────────────────────────────
+    // Anyone can create (public order form).
+    // Only authenticated admins can read, update, or delete.
+    match /orders/{orderId} {
+      allow create: if
+        // required fields must be present
+        request.resource.data.keys().hasAll([
+          'name', 'phone', 'address', 'city',
+          'productId', 'productName', 'price', 'quantity',
+          'status', 'createdAt'
+        ])
+        // new orders must start as pending
+        && request.resource.data.status == 'pending'
+        // basic type + size guards to block spam
+        && request.resource.data.name   is string && request.resource.data.name.size()   > 0 && request.resource.data.name.size()    < 120
+        && request.resource.data.phone  is string && request.resource.data.phone.size()  > 0 && request.resource.data.phone.size()   < 25
+        && request.resource.data.address is string && request.resource.data.address.size() > 0 && request.resource.data.address.size() < 500
+        && request.resource.data.city   is string && request.resource.data.city.size()   > 0 && request.resource.data.city.size()    < 80
+        && request.resource.data.price    is number && request.resource.data.price    > 0
+        && request.resource.data.quantity is int    && request.resource.data.quantity > 0;
+
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // ── Stock ─────────────────────────────────────────────────────────────────
+    // Admin-only read and write.
+    match /stock/{productId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── Deny everything else ──────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
