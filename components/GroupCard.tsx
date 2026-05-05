@@ -46,10 +46,10 @@ export default function GroupCard({
       {/* Image */}
       <Link href={href} className="relative block aspect-[4/5] bg-gray-50 overflow-hidden">
         {group.variants.map((v) =>
-          v.images[0] ? (
+          (v.cardImage ?? v.images[0]) ? (
             <Image
               key={v.id}
-              src={v.images[0]}
+              src={v.cardImage ?? v.images[0]}
               alt={`${group.fullName} — ${v.name}`}
               fill
               priority={priority && v.id === group.defaultVariant}
@@ -87,7 +87,7 @@ export default function GroupCard({
         {group.variants.length > 0 && (
           <div className="flex flex-col gap-1">
             <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
-              Pick Color
+              {group.variants.length > 1 ? "Pick Color" : "Color"}
             </span>
           <div className="flex items-center gap-2 flex-wrap">
             {group.variants.map((v) =>

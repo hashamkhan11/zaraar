@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { CheckCircle2, Shield, Truck, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
-import { ProductGroup, Variant, getVariant, getGroupById } from "@/data/catalog";
+import { ProductGroup, Variant, getVariant, getGroupById, catalog } from "@/data/catalog";
 import { trackEvent } from "@/lib/tiktok";
 import { useCart } from "@/context/CartContext";
 import OrderForm from "@/components/OrderForm";
@@ -25,22 +25,65 @@ const badgeStyle: Record<string, string> = {
 
 // ── Image Gallery (inline, variant-aware) ─────────────────────────────────────
 
-function VariantGallery({ group, selectedVariantId }: { group: ProductGroup; selectedVariantId: string }) {
+function VariantGallery({ group, selectedVariantId, onVariantChange }: {
+  group: ProductGroup;
+  selectedVariantId: string;
+  onVariantChange: (id: string) => void;
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const touchStartX = useRef<number | null>(null);
 
   const variant = group.variants.find((v) => v.id === selectedVariantId) ?? group.variants[0];
   const images = variant.images;
+  const selectableVariants = group.variants.filter((v) => !v.comingSoon && v.images[0]);
+  const jumpToIndexRef = useRef(0);
 
-  // Reset to first image on color switch
-  useEffect(() => { setActiveIndex(0); }, [selectedVariantId]);
+  // On variant change, jump to the index set by prev/next (defaults to 0)
+  useEffect(() => {
+    setActiveIndex(jumpToIndexRef.current);
+    jumpToIndexRef.current = 0;
+  }, [selectedVariantId]);
 
-  const prev = () => setActiveIndex((i) => (i === 0 ? images.length - 1 : i - 1));
-  const next = () => setActiveIndex((i) => (i === images.length - 1 ? 0 : i + 1));
+  const next = () => {
+    if (activeIndex < images.length - 1) {
+      setActiveIndex((i) => i + 1);
+    } else if (selectableVariants.length > 1) {
+      const idx = selectableVariants.findIndex((v) => v.id === selectedVariantId);
+      onVariantChange(selectableVariants[(idx + 1) % selectableVariants.length].id);
+    }
+  };
+
+  const prev = () => {
+    if (activeIndex > 0) {
+      setActiveIndex((i) => i - 1);
+    } else if (selectableVariants.length > 1) {
+      const idx = selectableVariants.findIndex((v) => v.id === selectedVariantId);
+      const prevVariant = selectableVariants[(idx - 1 + selectableVariants.length) % selectableVariants.length];
+      jumpToIndexRef.current = prevVariant.images.length - 1;
+      onVariantChange(prevVariant.id);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 40) return;
+    dx < 0 ? next() : prev();
+  };
 
   return (
     <div className="space-y-3">
       {/* Main image */}
-      <div className="relative aspect-square rounded-2xl overflow-hidden bg-gray-50 border border-gray-100">
+      <div
+        className="relative aspect-square rounded-2xl overflow-hidden bg-gray-50 border border-gray-100"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
 
         {/* All variant first images pre-rendered — color switch is pure CSS opacity, no remount */}
         {group.variants
@@ -74,13 +117,13 @@ function VariantGallery({ group, selectedVariantId }: { group: ProductGroup; sel
           />
         ))}
 
-        {images.length > 1 && (
+        {(images.length > 1 || selectableVariants.length > 1) && (
           <>
-            <button onClick={prev} aria-label="Previous image"
+            <button onClick={prev} aria-label="Previous"
               className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white transition-colors">
               <ChevronLeft className="w-5 h-5 text-gray-700" />
             </button>
-            <button onClick={next} aria-label="Next image"
+            <button onClick={next} aria-label="Next"
               className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white transition-colors">
               <ChevronRight className="w-5 h-5 text-gray-700" />
             </button>
@@ -130,7 +173,7 @@ function ColorSelector({ variants, selected, onChange }: {
     timerRef.current = setTimeout(() => setSoonFlash(false), 2000);
   };
 
-  if (variants.length === 0) return null;
+  if (variants.length <= 1) return null;
 
   const hasSoon = variants.some(v => v.comingSoon);
 
@@ -178,56 +221,70 @@ function ColorSelector({ variants, selected, onChange }: {
   );
 }
 
-// ── Cross-sell: PP Leather Strap variants ────────────────────────────────────
+// ── Cross-sell: all other product groups ─────────────────────────────────────
 
-function LeatherCrossSell() {
-  const leatherGroup = getGroupById("pp-leather-strap");
-  if (!leatherGroup) return null;
-
-  const discount = Math.round(
-    ((leatherGroup.originalPrice - leatherGroup.price) / leatherGroup.originalPrice) * 100
+function CrossSell({ currentGroupId }: { currentGroupId: string }) {
+  const items = catalog.flatMap((c) =>
+    c.groups.flatMap((group) =>
+      group.id === currentGroupId
+        ? []
+        : group.variants
+            .filter((v) => !v.comingSoon && (v.cardImage ?? v.images[0]))
+            .map((v) => ({ group, variant: v }))
+    )
   );
+
+  if (items.length === 0) return null;
 
   return (
     <div className="mt-10 pt-8 border-t border-gray-100">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-[0.15em] mb-4">
         You may also like
       </p>
-      <div className="grid grid-cols-2 gap-4">
-        {leatherGroup.variants.map((v) => (
-          <a
-            key={v.id}
-            href={`/product/pp-leather-strap/?color=${v.id}`}
-            className="group flex flex-col rounded-2xl border border-gray-100 overflow-hidden hover:border-gray-300 transition-colors"
-          >
-            <div className="relative aspect-square bg-gray-50 overflow-hidden">
-              {v.images[0] && (
-                <Image
-                  src={v.images[0]}
-                  alt={`${leatherGroup.fullName} — ${v.name}`}
-                  fill
-                  sizes="(max-width: 768px) 50vw, 25vw"
-                  className="object-contain p-4 transition-transform duration-500 group-hover:scale-[1.03]"
-                />
-              )}
-              <span className="absolute top-2 right-2 bg-black text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
-                −{discount}%
-              </span>
-            </div>
-            <div className="p-3 flex flex-col gap-1">
-              <p className="text-xs font-semibold text-gray-900 leading-snug">{v.name}</p>
-              <p className="text-[11px] text-gray-400">{leatherGroup.name}</p>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-sm font-semibold text-gray-900">
-                  PKR {leatherGroup.price.toLocaleString()}
-                </span>
-                <span className="text-[11px] text-gray-400 line-through">
-                  {leatherGroup.originalPrice.toLocaleString()}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {items.map(({ group, variant: v }) => {
+          const image = v.cardImage ?? v.images[0];
+          const discount = Math.round(
+            ((group.originalPrice - group.price) / group.originalPrice) * 100
+          );
+
+          return (
+            <a
+              key={`${group.id}-${v.id}`}
+              href={`/product/${group.id}/?color=${v.id}`}
+              className="group flex flex-col rounded-2xl border border-gray-100 overflow-hidden hover:border-gray-300 transition-colors"
+            >
+              <div className="relative aspect-square bg-gray-50 overflow-hidden">
+                {image && (
+                  <Image
+                    src={image}
+                    alt={`${group.fullName} — ${v.name}`}
+                    fill
+                    sizes="(max-width: 768px) 44vw, 25vw"
+                    className="object-contain p-3 transition-transform duration-500 group-hover:scale-[1.03]"
+                  />
+                )}
+                <span className="absolute top-2 right-2 bg-black text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                  −{discount}%
                 </span>
               </div>
-            </div>
-          </a>
-        ))}
+              <div className="p-2.5 flex flex-col gap-0.5">
+                <p className="text-xs font-semibold text-gray-900 leading-snug line-clamp-1">
+                  {v.name}
+                </p>
+                <p className="text-[10px] text-gray-400 line-clamp-1">{group.fullName}</p>
+                <div className="flex items-baseline gap-1.5 mt-1">
+                  <span className="text-xs font-semibold text-gray-900">
+                    PKR {group.price.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-gray-400 line-through">
+                    {group.originalPrice.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </a>
+          );
+        })}
       </div>
     </div>
   );
@@ -301,9 +358,9 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
 
   return (
     <>
-      <div className="max-w-6xl mx-auto px-6 py-8 pb-28 md:pb-12">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-8 pb-28 md:pb-12">
         {/* Breadcrumb */}
-        <nav className="text-xs text-gray-400 mb-6 tracking-wide" aria-label="Breadcrumb">
+        <nav className="text-xs text-gray-400 mb-3 md:mb-6 tracking-wide" aria-label="Breadcrumb">
           <a href="/" className="hover:text-gray-700 transition-colors">Home</a>
           <span className="mx-2">/</span>
           <span className="text-gray-600 uppercase tracking-wider text-[10px]">{group.categoryId}</span>
@@ -311,12 +368,12 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
           <span className="text-gray-600">{group.name}</span>
         </nav>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-20">
           {/* Images — sticky on desktop */}
           <div className="lg:sticky lg:top-24 lg:self-start">
-            <VariantGallery group={group} selectedVariantId={selectedVariantId} />
+            <VariantGallery group={group} selectedVariantId={selectedVariantId} onVariantChange={handleColorChange} />
             {/* Color selector shown right below image on mobile — no scroll needed */}
-            <div className="mt-4 lg:hidden">
+            <div className="mt-2 lg:hidden">
               <ColorSelector
                 variants={group.variants}
                 selected={selectedVariantId}
@@ -328,18 +385,18 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
           {/* Info */}
           <div>
             {(group.badge ?? variant.badge) && (
-              <span className={`tag mb-4 ${badgeStyle[group.badge ?? variant.badge ?? ""] ?? "border-gray-300 text-gray-500"}`}>
+              <span className={`tag mb-2 md:mb-4 ${badgeStyle[group.badge ?? variant.badge ?? ""] ?? "border-gray-300 text-gray-500"}`}>
                 {group.badge ?? variant.badge}
               </span>
             )}
 
-            <h1 className="font-display text-4xl md:text-5xl font-semibold text-gray-900 leading-tight mb-1">
+            <h1 className="font-display text-3xl md:text-5xl font-semibold text-gray-900 leading-tight mb-0.5">
               {group.fullName}
             </h1>
-            <p className="text-base text-gray-500 mb-4">{variant.name}</p>
+            <p className="text-sm text-gray-500 mb-2 md:mb-4">{variant.name}</p>
 
             {/* Rating */}
-            <div className="flex items-center gap-2 mb-5">
+            <div className="flex items-center gap-2 mb-3 md:mb-5">
               <div className="flex gap-0.5">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <svg key={i} className={`w-3.5 h-3.5 ${i < Math.floor(group.rating) ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"}`} viewBox="0 0 20 20">
@@ -362,7 +419,7 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
               </span>
               <span className="tag-sale">−{discount}%</span>
             </div>
-            <p className="text-xs text-green-600 font-medium mb-5">
+            <p className="text-xs text-green-600 font-medium mb-3 md:mb-5">
               Pay cash on delivery — no advance required
             </p>
 
@@ -378,7 +435,7 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
             <SocialProof stock={99} />
 
             {/* CTA buttons */}
-            <div className="flex gap-3 mb-8">
+            <div className="flex gap-3 mb-4 md:mb-8">
               <button
                 onClick={addToCart}
                 className="btn-outline flex-1 flex items-center justify-center gap-2"
@@ -395,11 +452,11 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
             </div>
 
             {/* Order form */}
-            <div id="order-form" className="mb-10">
-              <h2 className="font-display text-2xl font-semibold text-gray-900 mb-1">
+            <div id="order-form" className="mb-6 md:mb-10 border border-gray-200 rounded-2xl shadow-sm p-4 md:p-6 bg-white">
+              <h2 className="font-display text-xl md:text-2xl font-semibold text-gray-900 mb-0.5">
                 Order via this page
               </h2>
-              <p className="text-xs text-gray-400 mb-5 leading-relaxed">
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">
                 Fill in your details. We deliver to your door and you pay cash on arrival.
               </p>
               <OrderForm
@@ -447,8 +504,7 @@ export default function ProductClient({ group }: { group: ProductGroup }) {
               ))}
             </div>
 
-            {/* Cross-sell — shown on every product except the leather strap itself */}
-            {group.id !== "pp-leather-strap" && <LeatherCrossSell />}
+            <CrossSell currentGroupId={group.id} />
 
             <ReviewsSection />
           </div>

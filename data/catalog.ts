@@ -4,6 +4,7 @@ export interface Variant {
   swatch: string;
   swatchBorder?: boolean; // true for light colors that need a border on white bg
   images: string[];
+  cardImage?: string;    // override thumbnail shown on homepage card (defaults to images[0])
   badge?: string;
   placeholder?: boolean; // true = real photo not added yet, using temp image
   comingSoon?: boolean;  // true = color not yet available, shown as disabled swatch
@@ -53,7 +54,7 @@ export const catalog: BrandCategory[] = [
         badge: "Best Seller",
         price: 3999,
         originalPrice: 5500,
-        shortDescription: "Silver stainless steel chain bracelet — 5 dial colors.",
+        shortDescription: "Silver stainless steel chain bracelet — 4 dial colors.",
         description:
           "The PP Single Tone Chain collection pairs a polished all-silver stainless steel case and integrated chain bracelet with five distinct dial personalities. From the cool calm of Ice Blue to the deep authority of Deep Blue, and from Pearl White to Midnight Black and Forest Green — each shares the same premium build, automatic movement, luminous markers, and date display. One watch family, five moods.",
         features: [
@@ -75,18 +76,14 @@ export const catalog: BrandCategory[] = [
             id: "deep-blue",
             name: "Deep Blue",
             swatch: "#1E3D6B",
-            images: [
-              "/products/pp/single-tone/deep-blue/1.webp",
-            ],
+            images: ["/products/pp/single-tone/deep-blue/1.webp"],
             badge: "New Arrival",
           },
           {
             id: "ice-blue",
             name: "Ice Blue",
             swatch: "#8EC9D8",
-            images: [
-              "/products/pp/single-tone/ice-blue/1.webp",
-            ],
+            images: ["/products/pp/single-tone/ice-blue/1.webp"],
             badge: "Best Seller",
           },
           {
@@ -101,15 +98,6 @@ export const catalog: BrandCategory[] = [
             name: "Midnight Black",
             swatch: "#1A1A1A",
             images: ["/products/pp/single-tone/black/1.webp"],
-          },
-          {
-            id: "green",
-            name: "Forest Green",
-            swatch: "#2D6A4F",
-            images: [
-              "/products/pp/single-tone/green/1.webp",
-            ],
-            placeholder: true,
           },
         ],
       },
@@ -144,14 +132,26 @@ export const catalog: BrandCategory[] = [
             id: "black",
             name: "Classic Black",
             swatch: "#1A1A1A",
-            images: ["/products/pp/leather-strap/black/1.webp"],
+            images: [
+              "/products/pp/leather-strap/black/1.webp",
+              "/products/pp/leather-strap/black/2.webp",
+              "/products/pp/leather-strap/black/3.webp",
+              "/products/pp/leather-strap/black/4.webp",
+              "/products/pp/leather-strap/black/5.webp",
+            ],
             badge: "Formal Pick",
           },
           {
             id: "brown",
             name: "Classic Brown",
             swatch: "#7B4B2A",
-            images: ["/products/pp/leather-strap/brown/1.webp"],
+            images: [
+              "/products/pp/leather-strap/brown/1.webp",
+              "/products/pp/leather-strap/brown/2.webp",
+              "/products/pp/leather-strap/brown/3.webp",
+              "/products/pp/leather-strap/brown/4.webp",
+              "/products/pp/leather-strap/brown/5.webp",
+            ],
             badge: "Premium Pick",
           },
         ],
@@ -189,20 +189,23 @@ export const catalog: BrandCategory[] = [
             name: "Ivory White",
             swatch: "#E8E8E8",
             swatchBorder: true,
-            images: ["/products/pp/dual-tone/white/1.webp"],
+            cardImage: "/products/pp/dual-tone/white/1.webp",
+            images: ["/products/pp/dual-tone/white/3.webp", "/products/pp/dual-tone/white/2.webp"],
           },
           {
             id: "black",
             name: "Midnight Black",
             swatch: "#1A1A1A",
-            images: ["/products/pp/dual-tone/black/1.webp"],
+            cardImage: "/products/pp/dual-tone/black/1.webp",
+            images: ["/products/pp/dual-tone/black/3.webp", "/products/pp/dual-tone/black/2.webp"],
             badge: "New Arrival",
           },
           {
             id: "gold",
             name: "Champagne Gold",
             swatch: "#D4AF37",
-            images: ["/products/pp/dual-tone/gold/1.webp"],
+            cardImage: "/products/pp/dual-tone/gold/1.webp",
+            images: ["/products/pp/dual-tone/gold/3.webp", "/products/pp/dual-tone/gold/2.webp"],
           },
         ],
       },
@@ -224,9 +227,9 @@ export const catalog: BrandCategory[] = [
         badge: "Most Exclusive",
         price: 3999,
         originalPrice: 5500,
-        shortDescription: "Shine-finish dial with integrated silver chain bracelet — 4 colors.",
+        shortDescription: "Shine-finish dial with integrated silver chain bracelet.",
         description:
-          "The TST Single Tone Chain is defined by its distinctive shine-finish dial that catches and reflects light beautifully under any condition. The integrated stainless steel bracelet and slim case profile give it a seamless, modern silhouette. Available in four dial personalities — Light Blue, White, Green and Black Shine — all sharing the same Swiss-inspired quartz movement, sapphire crystal, and precise date display.",
+          "The TST Single Tone Chain is defined by its distinctive shine-finish dial that catches and reflects light beautifully under any condition. The integrated stainless steel bracelet and slim case profile give it a seamless, modern silhouette. Sharing the same Swiss-inspired quartz movement, sapphire crystal, and precise date display.",
         features: [
           "Shine-finish dial with sunburst light effect",
           "Swiss quartz movement for precise timekeeping",
@@ -235,41 +238,23 @@ export const catalog: BrandCategory[] = [
           "Date display at 3 o'clock",
           "Slim minimalist case design",
           "Water-resistant build",
-          "Available in 4 shine dial colors",
         ],
         rating: 4.9,
         reviewCount: 89,
         orders24h: 18,
-        defaultVariant: "deep-blue",
+        defaultVariant: "silver",
         variants: [
           {
-            id: "deep-blue",
-            name: "Deep Blue Shine",
+            id: "silver",
+            name: "Deep Blue",
             swatch: "#1E3D6B",
-            images: ["/products/tst/single-tone/deep-blue/1.webp"],
+            cardImage: "/products/tst/single-tone/deep-blue/2.webp",
+            images: [
+              "/products/tst/single-tone/deep-blue/1.webp",
+              "/products/tst/single-tone/deep-blue/2.webp",
+              "/products/tst/single-tone/deep-blue/3.webp",
+            ],
             badge: "Most Exclusive",
-          },
-          {
-            id: "white",
-            name: "Arctic White",
-            swatch: "#E8E8E8",
-            swatchBorder: true,
-            images: [],
-            comingSoon: true,
-          },
-          {
-            id: "green",
-            name: "Emerald Green",
-            swatch: "#2D6A4F",
-            images: [],
-            comingSoon: true,
-          },
-          {
-            id: "black",
-            name: "Onyx Black",
-            swatch: "#1A1A1A",
-            images: [],
-            comingSoon: true,
           },
         ],
       },
@@ -302,7 +287,7 @@ export const LEGACY_REDIRECTS: Record<string, string> = {
   "watch-deep-blue":     "/product/pp-single-tone/?color=deep-blue",
   "watch-classic-brown": "/product/pp-leather-strap/?color=brown",
   "watch-classic-black": "/product/pp-leather-strap/?color=black",
-  "tissot-quartz-blue":  "/product/tst-single-tone/?color=deep-blue",
+  "tissot-quartz-blue":  "/product/tst-single-tone/",
 };
 
 export function getAllProductRouteIds(): string[] {
