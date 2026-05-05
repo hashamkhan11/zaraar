@@ -21,6 +21,9 @@ function TikTokIcon({ className }: { className?: string }) {
 export default function HomePage() {
   return (
     <>
+      {/* Preload hero images — browser fetches before parsing CSS/JS */}
+      <link rel="preload" as="image" href="/hero-bg-mobile.webp" media="(max-width: 767px)" />
+      <link rel="preload" as="image" href="/hero-bg.webp" media="(min-width: 768px)" />
       {/* ── Hero ── */}
       <section className="bg-white pt-3 px-3 sm:px-4">
         <div className="relative h-[calc(100vh-5rem)] min-h-[500px] max-h-[920px] overflow-hidden rounded-[1.75rem] sm:rounded-[2rem] bg-black">
