@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
-export type OrderStatus = "pending" | "confirmed" | "delivered" | "cancelled" | "returned";
+export type OrderStatus = "pending" | "confirmed" | "dispatched" | "in_transit" | "delivered" | "failed_delivery" | "returned" | "cancelled";
 
 export interface OrderData {
   name: string;
@@ -24,6 +24,19 @@ export interface OrderData {
   price: number;
   quantity: number;
   note?: string;
+  paymentStatus?: "pending" | "paid" | "failed";
+  trackingNumber?: string;
+  courierName?: "postex" | "leopard" | string;
+  estimatedDeliveryDate?: Date;
+  dispatchCost?: number;
+  // PostEx sync
+  postexStatus?: string;       // latest PostEx status code e.g. "0005"
+  postexData?: string;         // JSON of last PostEx tracking response
+  postexLastSync?: Date;
+  // Call workflow
+  callAttempts?: number;
+  lastCallAt?: Date;
+  callNote?: string;
 }
 
 export interface Order extends OrderData {
@@ -81,7 +94,7 @@ export async function deleteOrder(orderId: string): Promise<void> {
  */
 export async function updateOrder(
   orderId: string,
-  data: Partial<Pick<OrderData, "name" | "phone" | "address" | "city" | "quantity" | "note">>
+  data: Partial<OrderData>
 ): Promise<void> {
   const ref = doc(db, "orders", orderId);
   await updateDoc(ref, data as Record<string, unknown>);

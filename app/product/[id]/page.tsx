@@ -4,7 +4,6 @@ import { Suspense } from "react";
 import { getAllProductRouteIds, getGroupById, LEGACY_REDIRECTS } from "@/data/catalog";
 import LegacyRedirect from "./LegacyRedirect";
 import ProductClient from "./ProductClient";
-import { Loader2 } from "lucide-react";
 
 const BASE = "https://watchesbyfahad.com";
 
@@ -137,8 +136,24 @@ export default function ProductPage({ params }: PageProps) {
       <ProductJsonLd params={params} />
       <Suspense
         fallback={
-          <div className="min-h-screen flex items-center justify-center">
-            <Loader2 className="w-8 h-8 animate-spin text-gray-200" />
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-4 md:py-8 pb-28 md:pb-12">
+            <div className="h-3 w-44 bg-gray-100 rounded animate-pulse mb-3 md:mb-6" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-20">
+              <div className="aspect-square rounded-2xl bg-gray-100 animate-pulse" />
+              <div className="space-y-3 pt-1">
+                <div className="h-3 w-20 bg-gray-100 rounded animate-pulse" />
+                <div className="h-10 bg-gray-100 rounded animate-pulse w-4/5" />
+                <div className="h-4 bg-gray-100 rounded animate-pulse w-2/5" />
+                <div className="h-8 bg-gray-100 rounded animate-pulse w-1/3" />
+                <div className="h-3 bg-gray-100 rounded animate-pulse w-1/2" />
+                <div className="flex gap-3 pt-2">
+                  <div className="h-9 w-9 rounded-full bg-gray-100 animate-pulse" />
+                  <div className="h-9 w-9 rounded-full bg-gray-100 animate-pulse" />
+                </div>
+                <div className="h-44 bg-gray-100 rounded-2xl animate-pulse mt-2" />
+                <div className="h-12 bg-gray-100 rounded animate-pulse" />
+              </div>
+            </div>
           </div>
         }
       >

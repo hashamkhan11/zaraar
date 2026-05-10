@@ -6,6 +6,7 @@ import Image from "next/image";
 import { ProductGroup } from "@/data/catalog";
 
 const BADGE_STYLE: Record<string, string> = {
+  "Eid Sale":       "border-amber-500 text-amber-800",
   "Best Seller":    "border-amber-400 text-amber-700",
   "New Arrival":    "border-blue-400 text-blue-700",
   "Premium Pick":   "border-purple-400 text-purple-700",
@@ -86,7 +87,7 @@ export default function GroupCard({
         {/* Color swatches */}
         {group.variants.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500">
               {group.variants.length > 1 ? "Pick Color" : "Color"}
             </span>
           <div className="flex items-center gap-2 flex-wrap">
@@ -130,7 +131,7 @@ export default function GroupCard({
           <span className="font-display text-base font-semibold text-gray-900">
             PKR {group.price.toLocaleString()}
           </span>
-          <span className="text-xs text-gray-400 line-through">
+          <span className="text-xs text-gray-500 line-through">
             {group.originalPrice.toLocaleString()}
           </span>
         </div>

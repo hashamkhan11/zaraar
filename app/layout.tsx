@@ -10,6 +10,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { CartProvider } from "@/context/CartContext";
 import CartDrawer from "@/components/CartDrawer";
+import SaleBanner from "@/components/SaleBanner";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
@@ -82,6 +83,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           })(window, document, "clarity", "script", "wk1y19ouk6");
         `}</Script>
 
+        {/* Google Analytics 4 */}
+        <Script src="https://www.googletagmanager.com/gtag/js?id=G-9NHS787E2D" strategy="afterInteractive" />
+        <Script id="ga4" strategy="afterInteractive">{`
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-9NHS787E2D');
+        `}</Script>
+
         {/* TikTok Pixel — loads after page is interactive */}
         <Script id="tiktok-pixel" strategy="afterInteractive">{`
           !function (w, d, t) {
@@ -92,6 +102,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         `}</Script>
       </head>
       <body className="font-sans">
+        <SaleBanner />
         <CartProvider>
           <Navbar />
           <CartDrawer />

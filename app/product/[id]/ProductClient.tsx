@@ -16,6 +16,7 @@ import { ShoppingBag, Check } from "lucide-react";
 // ── Badge styles ──────────────────────────────────────────────────────────────
 
 const badgeStyle: Record<string, string> = {
+  "Eid Sale":       "border-amber-500 text-amber-800",
   "Best Seller":    "border-amber-400 text-amber-700",
   "New Arrival":    "border-blue-400 text-blue-700",
   "Premium Pick":   "border-purple-400 text-purple-700",
@@ -95,7 +96,7 @@ function VariantGallery({ group, selectedVariantId, onVariantChange }: {
               alt={`${group.fullName} — ${v.name}`}
               fill
               priority={v.id === group.defaultVariant}
-              loading="eager"
+              loading={v.id === group.defaultVariant ? "eager" : "lazy"}
               sizes="(max-width: 768px) 100vw, 50vw"
               className={`object-contain p-4 transition-opacity duration-150 ${
                 v.id === selectedVariantId && activeIndex === 0 ? "opacity-100" : "opacity-0"
@@ -116,6 +117,11 @@ function VariantGallery({ group, selectedVariantId, onVariantChange }: {
             }`}
           />
         ))}
+
+        {/* Eid Sale badge */}
+        <span className="absolute top-3 left-3 z-10 inline-flex items-center gap-1.5 bg-[#3D1F0F] text-[#F5C98A] text-[10px] font-bold tracking-[0.12em] uppercase px-2.5 py-1 rounded-full shadow-md">
+          ☪ Eid ul Azha Sale
+        </span>
 
         {(images.length > 1 || selectableVariants.length > 1) && (
           <>

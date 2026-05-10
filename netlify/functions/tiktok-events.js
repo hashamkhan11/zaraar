@@ -37,8 +37,10 @@ exports.handler = async (event) => {
 
   const payload = {
     pixel_code: pixelId,
+    event_source_id: pixelId,
+    event_source: "web",
     ...(testEventCode && { test_event_code: testEventCode }),
-    event: [
+    data: [
       {
         event: eventName,
         event_time: Math.floor(Date.now() / 1000),

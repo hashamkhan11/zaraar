@@ -38,7 +38,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="border-t border-[#E8DDD4] mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-medium text-[#A0806A]">
+        <div className="border-t border-[#E8DDD4] mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-medium text-[#6B5040]">
           <p>© {new Date().getFullYear()} WatchesByFahad. All rights reserved.</p>
           <p>Products are premium inspired designs, not original brand items.</p>
         </div>

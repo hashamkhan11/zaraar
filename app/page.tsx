@@ -22,8 +22,8 @@ export default function HomePage() {
   return (
     <>
       {/* Preload hero images — browser fetches before parsing CSS/JS */}
-      <link rel="preload" as="image" href="/hero-bg-mobile.webp" media="(max-width: 767px)" />
-      <link rel="preload" as="image" href="/hero-bg.webp" media="(min-width: 768px)" />
+      <link rel="preload" as="image" href="/hero-bg-mobile.webp" media="(max-width: 767px)" fetchPriority="high" />
+      <link rel="preload" as="image" href="/hero-bg.webp" media="(min-width: 768px)" fetchPriority="high" />
       {/* ── Hero ── */}
       <section className="bg-white pt-3 px-3 sm:px-4">
         <div className="relative h-[calc(100vh-5rem)] min-h-[500px] max-h-[920px] overflow-hidden rounded-[1.75rem] sm:rounded-[2rem] bg-black">
@@ -119,7 +119,7 @@ export default function HomePage() {
               <div key={label} className="flex flex-col items-center gap-1 py-1">
                 <Icon className="w-4 h-4 text-[#8B5E3C] mb-1" strokeWidth={1.5} />
                 <span className="text-xs font-semibold text-gray-900">{label}</span>
-                <span className="text-[11px] text-gray-400">{sub}</span>
+                <span className="text-[11px] text-gray-500">{sub}</span>
               </div>
             ))}
           </div>
@@ -132,13 +132,13 @@ export default function HomePage() {
 
           {/* Section eyebrow */}
           <div className="mb-12">
-            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#C4976A] mb-2">
+            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-[#7A5530] mb-2">
               The Collection
             </p>
             <h2 className="font-display text-3xl md:text-4xl font-semibold text-gray-900 tracking-tight leading-tight">
               Browse All Styles
             </h2>
-            <p className="text-sm text-gray-400 mt-2">
+            <p className="text-sm text-gray-500 mt-2">
               Hover any color swatch to preview. Tap to select, then order.
             </p>
           </div>
@@ -154,9 +154,10 @@ export default function HomePage() {
                     {brand.name}
                   </span>
                   <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-gray-400 flex-shrink-0 hidden sm:block">
+                  <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-gray-500 flex-shrink-0 hidden sm:block">
                     {brand.groups.length} style{brand.groups.length !== 1 ? "s" : ""}
                   </span>
+
                 </div>
 
                 {/* Cards */}
@@ -188,7 +189,7 @@ export default function HomePage() {
               {" "}· Peshawar · Abbottabad · Sialkot · Gujranwala · Quetta · Bahawalpur
             </span>
           </p>
-          <p className="text-[11px] text-[#8B7355] leading-relaxed">
+          <p className="text-[11px] text-[#B09070] leading-relaxed">
             Cities above are our highest customer areas — but we ship everywhere in Pakistan.
           </p>
           <p className="text-[11px] text-[#8B7355] mt-1.5 leading-relaxed">
@@ -207,7 +208,7 @@ export default function HomePage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-gray-900">See them in motion</p>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-500 mt-0.5">
                   HD videos of every watch before you order
                 </p>
               </div>
@@ -246,7 +247,7 @@ export default function HomePage() {
                 <p className="font-display text-5xl font-semibold text-white mb-4">{step}</p>
                 <div className="w-8 h-px bg-[#C4976A] mx-auto mb-4" />
                 <h3 className="text-sm font-semibold text-white mb-2 tracking-widest uppercase">{title}</h3>
-                <p className="text-sm text-[#8B7355] leading-relaxed">{desc}</p>
+                <p className="text-sm text-[#B09070] leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
