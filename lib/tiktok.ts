@@ -1,3 +1,9 @@
+declare global {
+  interface Window {
+    ttq?: { page: () => void; track: (event: string, props: Record<string, unknown>) => void };
+  }
+}
+
 export async function sha256(str: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str.trim().toLowerCase()));
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -21,8 +27,8 @@ export async function trackEvent(
 ) {
   const eventId = crypto.randomUUID();
 
-  if (typeof window !== "undefined" && (window as any).ttq) {
-    (window as any).ttq.track(eventName, { ...properties, event_id: eventId });
+  if (typeof window !== "undefined" && window.ttq) {
+    window.ttq.track(eventName, { ...properties, event_id: eventId });
   }
 
   try {

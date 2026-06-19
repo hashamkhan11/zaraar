@@ -2,22 +2,37 @@ import {
   collection,
   addDoc,
   getDocs,
+  getDoc,
   doc,
   updateDoc,
   deleteDoc,
+  setDoc,
   serverTimestamp,
   query,
   orderBy,
   onSnapshot,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { catalog } from "@/data/catalog";
 
-export type OrderStatus = "pending" | "confirmed" | "dispatched" | "in_transit" | "delivered" | "failed_delivery" | "returned" | "cancelled";
+export async function getNextOrderNumber(): Promise<number> {
+  const counterRef = doc(db, "meta", "orderCounter");
+  return runTransaction(db, async (t) => {
+    const snap = await t.get(counterRef);
+    const next = snap.exists() ? (snap.data().value as number) + 1 : 1001;
+    t.set(counterRef, { value: next });
+    return next;
+  });
+}
+
+export type OrderStatus = "pending" | "confirmed" | "dispatched" | "in_transit" | "delivered" | "failed_delivery" | "return_in_transit" | "returned" | "cancelled";
 
 export interface OrderData {
+  orderNumber?: number;
   name: string;
   phone: string;
-  address: string;
+  address?: string;
   city: string;
   productId: string;
   productName: string;
@@ -30,8 +45,8 @@ export interface OrderData {
   estimatedDeliveryDate?: Date;
   dispatchCost?: number;
   // PostEx sync
-  postexStatus?: string;       // latest PostEx status code e.g. "0005"
-  postexData?: string;         // JSON of last PostEx tracking response
+  postexStatus?: string;
+  postexData?: string;
   postexLastSync?: Date;
   // Call workflow
   callAttempts?: number;
@@ -45,15 +60,48 @@ export interface Order extends OrderData {
   createdAt: Date;
 }
 
+function normalizePhone(phone: string): string {
+  const d = phone.replace(/\D/g, "");
+  if (d.startsWith("92") && d.length >= 12) return "0" + d.slice(2);
+  return d;
+}
+
 /**
  * Save a new COD order to Firestore
+ * OPTIMIZED: Order is saved instantly with a temp number,
+ * then the real sequential order number is patched in the background.
+ * This removes the blocking transaction round-trip from the customer's wait time.
  */
 export async function createOrder(data: OrderData): Promise<string> {
-  const docRef = await addDoc(collection(db, "orders"), {
-    ...data,
-    status: "pending" as OrderStatus,
-    createdAt: serverTimestamp(),
-  });
+  // Generate a temporary order number locally (no Firestore round-trip needed)
+  // Format: timestamp-based so it's always unique and roughly sequential
+  const tempOrderNumber = Math.floor(Date.now() / 1000) - 1700000000 + 1000;
+
+  const payload = Object.fromEntries(
+    Object.entries({
+      ...data,
+      phone: normalizePhone(data.phone),
+      orderNumber: tempOrderNumber,
+      status: "pending" as OrderStatus,
+      createdAt: serverTimestamp(),
+    }).filter(([, v]) => v !== undefined)
+  );
+
+  // Single Firestore write — customer waits for this only (fast)
+  const docRef = await addDoc(collection(db, "orders"), payload);
+
+  // Patch the real sequential order number in the background
+  // Customer is already on the success screen while this runs
+  getNextOrderNumber()
+    .then((realOrderNumber) => {
+      updateDoc(docRef, { orderNumber: realOrderNumber }).catch(() => {
+        // Silent fail — order is already saved, number will just stay as temp
+      });
+    })
+    .catch(() => {
+      // Silent fail — order is saved and working, only display number is affected
+    });
+
   return docRef.id;
 }
 
@@ -120,4 +168,50 @@ export function subscribeToOrders(
     },
     onError
   );
+}
+
+// ── Public stats (readable by storefront) ─────────────────────────────────────
+
+export interface PublicStats {
+  deliveredCount: number;
+  topCities: string[];
+  productCounts?: Record<string, number>;
+}
+
+export async function getPublicStats(): Promise<PublicStats> {
+  try {
+    const snap = await getDoc(doc(db, "meta", "publicStats"));
+    if (!snap.exists()) return { deliveredCount: 0, topCities: [] };
+    return snap.data() as PublicStats;
+  } catch { return { deliveredCount: 0, topCities: [] }; }
+}
+
+export async function updatePublicStats(orders: Order[]): Promise<void> {
+  const delivered = orders.filter(o => o.status === "delivered");
+  const cityCount: Record<string, number> = {};
+  delivered.forEach(o => {
+    const c = o.city.trim();
+    cityCount[c] = (cityCount[c] || 0) + 1;
+  });
+  const topCities = Object.entries(cityCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([c]) => c);
+
+  const oneDayAgo = new Date(Date.now() - 86400000);
+  const groupIds = catalog.flatMap(c => c.groups.map(g => g.id));
+  const productCounts: Record<string, number> = {};
+  orders.forEach(o => {
+    if (o.createdAt instanceof Date && o.createdAt >= oneDayAgo) {
+      const groupId = groupIds.find(id => o.productId.startsWith(id));
+      if (groupId) productCounts[groupId] = (productCounts[groupId] || 0) + 1;
+    }
+  });
+
+  await setDoc(doc(db, "meta", "publicStats"), {
+    deliveredCount: delivered.length,
+    topCities,
+    productCounts,
+    updatedAt: serverTimestamp(),
+  });
 }

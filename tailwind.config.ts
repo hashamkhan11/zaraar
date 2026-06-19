@@ -5,35 +5,31 @@ const config: Config = {
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./context/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["DM Sans", "sans-serif"],
-        display: ["Playfair Display", "serif"],
+        display: ["var(--font-display)", "Georgia", "serif"],
+        body:    ["var(--font-body)", "system-ui", "sans-serif"],
+        sans:    ["var(--font-body)", "system-ui", "sans-serif"],
+        urdu:    ["var(--font-urdu)", "serif"],
       },
       colors: {
-        brand: {
-          black: "#0a0a0a",
-          grey: "#6b7280",
-          light: "#f9fafb",
-          border: "#e5e7eb",
+        zaraar: {
+          black:    "#0A0A0A",
+          dark:     "#111111",
+          offwhite: "#F5F5F0",
+          paper:    "#FAFAF8",
+          gold:     "#C9A84C",
         },
       },
       animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "drawer-in": "drawerIn 0.32s cubic-bezier(0.32, 0.72, 0, 1)",
-        "fade-in": "fadeIn 0.2s ease",
+        "marquee": "zaraar-marquee 35s linear infinite",
       },
       keyframes: {
-        drawerIn: {
-          "0%": { transform: "translateX(100%)" },
-          "100%": { transform: "translateX(0)" },
-        },
-        fadeIn: {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" },
+        "zaraar-marquee": {
+          "0%":   { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
         },
       },
     },

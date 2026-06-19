@@ -1,152 +1,313 @@
-export interface Product {
+export type SeriesId = "pp" | "ppd" | "tst" | "hbl";
+
+export interface ZararProduct {
   id: string;
   name: string;
+  seriesId: SeriesId;
+  seriesName: string;
+  tagline: string;
+  description: string;
   price: number;
   originalPrice: number;
+  image: string;
   images: string[];
-  description: string;
-  shortDescription: string;
-  features: string[];
-  badge?: string;
-  stock: number;
-  orders24h: number;
-  rating: number;
-  reviewCount: number;
+  tag?: string;
 }
 
-export const products: Product[] = [
+export const SERIES: { id: SeriesId; name: string; slug: string; description: string; specs: string[] }[] = [
   {
-    id: "watch-ice-blue",
-    name: "PP Ice Blue",
-    price: 4000,
-    originalPrice: 5500,
-    images: ["/products/pp/single-tone/ice-blue/1.webp"],
-    shortDescription:
-      "Premium ice-blue dial watch with a luxury-inspired stainless steel design at an affordable price.",
-    description:
-      "The Patek Philippe Ice Blue Edition is designed for those who appreciate luxury styling without spending a fortune. Featuring a stunning ice-blue textured dial, this timepiece instantly stands out with elegance and modern sophistication. Crafted with a polished stainless steel body and detailed finishing, it delivers a premium feel on the wrist. The luminous markers ensure visibility in low light, while the durable build makes it perfect for everyday wear. Whether you're dressing for a formal event or upgrading your daily style, this watch gives you that luxury presence — without the luxury price tag.",
-    features: [
-      "Automatic Watch",
-      "Date and Time",
-      "Water resistant up to 30 metres",
-      "Premium Quality",
-      "Excellent Finishing",
-      "Limited Edition",
-      "Dial Size: 42mm",
-      "Premium Packing",
-    ],
-    badge: "Best Seller",
-    stock: 7,
-    orders24h: 27,
-    rating: 4.9,
-    reviewCount: 128,
-  },
-  {
-    id: "watch-deep-blue",
-    name: "PP Deep Blue",
-    price: 4000,
-    originalPrice: 5000,
-    images: ["/products/pp/single-tone/deep-blue/1.webp"],
-    shortDescription:
-      "Premium deep-blue dial watch with a luxury-inspired stainless steel design, crafted to deliver high-end look.",
-    description:
-      "The Patek Philippe Deep Blue Edition is made for those who prefer a stronger, more refined presence on the wrist. Featuring a rich deep-blue textured dial, this timepiece reflects depth, elegance, and modern luxury. The polished stainless steel construction enhances durability while maintaining a sleek, premium finish. Luminous hour markers ensure clear visibility in low light, making it as practical as it is stylish. Perfect for both formal occasions and everyday wear, this watch elevates your style effortlessly — giving you a luxury feel without the premium price.",
-    features: [
-      "Automatic Watch",
-      "Date and Time",
-      "Water resistant up to 30 metres",
-      "Premium Quality",
-      "Excellent Finishing",
-      "Limited Edition",
-      "Dial Size: 42mm",
-      "Premium Packing",
-    ],
-    badge: "New Arrival",
-    stock: 5,
-    orders24h: 19,
-    rating: 4.8,
-    reviewCount: 74,
-  },
-  {
-    id: "watch-classic-brown",
-    name: "PP Classic Brown",
-    price: 5000,
-    originalPrice: 6500,
-    images: ["/products/pp/leather-strap/brown/1.webp"],
-    shortDescription:
-      "Timeless white elegance paired with a sleek premium brown leather strap.",
-    description:
-      "Exude timeless sophistication with this Patek Philippe Geneve edition, featuring a clean white textured dial that reflects light beautifully from every angle. Crafted with a high-grade stainless steel case and paired with a refined brown leather strap, this timepiece delivers a bold yet classic look. The transparent exhibition back reveals the intricate semi-automatic movement in action, showcasing true mechanical craftsmanship. Designed for the modern gentleman, it combines elegance, durability, and reliable water-resistant performance — perfect for both formal wear and everyday style.",
-    features: [
-      "White textured dial with horizontal lines & silver-tone markers",
-      "Exhibition back case showcasing semi-automatic movement",
-      "Polished stainless steel body for durability",
-      "Premium stitched brown leather strap",
-      "Date window at 3 o'clock position",
-      "Water-resistant for everyday use",
-      "Elegant contrast of silver steel & black leather",
-      "Luxury presentation with refined finishing",
-    ],
-    badge: "Premium Pick",
-    stock: 4,
-    orders24h: 14,
-    rating: 4.9,
-    reviewCount: 96,
-  },
-  {
-    id: "watch-classic-black",
-    name: "PP Classic Black",
-    price: 5000,
-    originalPrice: 6500,
-    images: ["/products/pp/leather-strap/black/1.webp"],
-    shortDescription:
- "Timeless white elegance paired with a sleek premium black leather strap.",
-    description:
-      "Exude timeless sophistication with this Patek Philippe Geneve edition, featuring a clean white textured dial that reflects light beautifully from every angle. Crafted with a high-grade stainless steel case and paired with a refined black leather strap, this timepiece delivers a bold yet classic look. The transparent exhibition back reveals the intricate semi-automatic movement in action, showcasing true mechanical craftsmanship. Designed for the modern gentleman, it combines elegance, durability, and reliable water-resistant performance — perfect for both formal wear and everyday style.",
-    features: [
-    "White textured dial with horizontal lines & silver-tone markers",
-      "Exhibition back case showcasing semi-automatic movement",
-      "Polished stainless steel body for durability",
-      "Premium stitched brown leather strap",
-      "Date window at 3 o'clock position",
-      "Water-resistant for everyday use",
-      "Elegant contrast of silver steel & black leather",
-      "Luxury presentation with refined finishing",
-    ],
-    badge: "Formal Pick",
-    stock: 9,
-    orders24h: 11,
-    rating: 4.8,
-    reviewCount: 53,
-  },
-  {
-    id: "tissot-quartz-blue",
-    name: "TST Quartz Blue",
-    price: 4000,
-    originalPrice: 5500,
-    images: ["/products/tst/single-tone/deep-blue/1.webp"],
-    shortDescription:
-      "Sleek blue gradient dial with a stainless steel integrated bracelet — a perfect blend of modern style and Swiss precision.",
-    description:
-      "The Tissot PRX Blue Dial is a true statement of refined simplicity and contemporary design. Featuring a striking blue gradient dial that shifts beautifully under light, this timepiece captures attention while maintaining a clean, minimalist aesthetic. The integrated stainless steel bracelet and slim case design provide a seamless, comfortable fit on the wrist. Built with Swiss precision and attention to detail, it ensures reliable performance for everyday wear. Whether you're heading to a formal event or elevating your daily style, the PRX delivers timeless elegance with a modern edge.",
-    features: [
-      "Blue gradient dial with sunburst effect",
-      "Slim, minimalist design with clean markers",
-      "Integrated stainless steel bracelet",
+    id:          "tst",
+    name:        "Tissot Design",
+    slug:        "tissot",
+    description: "Swiss precision, reinterpreted. Bold, structured, and built for the modern achiever who expects nothing short of excellence.",
+    specs: [
+      "Shine-finish dial with sunburst light effect",
       "Swiss quartz movement for precise timekeeping",
-      "Date display at 3 o'clock position",
-      "Durable stainless steel case",
+      "Integrated silver stainless steel bracelet",
       "Scratch-resistant sapphire crystal",
-      "Comfortable and stylish for daily wear",
+      "Date display at 3 o'clock",
+      "Slim minimalist case design",
+      "Water-resistant build",
     ],
-    badge: "Most Exclusive",
-    stock: 3,
-    orders24h: 8,
-    rating: 5.0,
-    reviewCount: 41,
+  },
+  {
+    id:          "hbl",
+    name:        "Hublot Design",
+    slug:        "hublot",
+    description: "Contemporary power meets bold expression. For the man who doesn't follow trends. He sets them.",
+    specs: [
+      "Quartz movement",
+      "Date working",
+      "Master lock",
+      "Great quality & finishing",
+      "Premium look",
+    ],
+  },
+  {
+    id:          "pp",
+    name:        "Patek Philippe — Single Tone",
+    slug:        "patek-philippe",
+    description: "Inspired by the timeless elegance of Patek Philippe. Clean dials, refined lines, and the quiet confidence of a man who has already arrived. Pure silver chain.",
+    specs: [
+      "Movement: Quartz",
+      "Water resistance: Yes",
+      "Strap material: Stainless steel",
+      "Watch case shape: Rounded square",
+      "Watch case size: 30mm to 32mm",
+      "Dial size: 32mm",
+      "Watch feature: Date",
+      "Available in 4 dial colors",
+    ],
+  },
+  {
+    id:          "ppd",
+    name:        "Patek Philippe — Dual Tone",
+    slug:        "patek-philippe-dual-tone",
+    description: "Gold and silver combined in a single integrated chain bracelet. Three dial personalities, one unmistakable presence. The watch that announces itself before you say a word.",
+    specs: [
+      "Movement: Quartz",
+      "Water resistance: Yes",
+      "Strap material: Gold/silver color stainless steel",
+      "Watch case shape: Rounded square",
+      "Watch case size: 30mm to 32mm",
+      "Dial size: 32mm",
+      "Watch feature: Date",
+      "Available in 3 dial colors",
+    ],
   },
 ];
 
-export function getProductById(id: string): Product | undefined {
-  return products.find((p) => p.id === id);
-}
+export const CATALOG: ZararProduct[] = [
+
+  // ─── Patek Philippe Design ─────────────────────────────────────────────────
+  {
+    id:            "pp-deep-blue",
+    name:          "PP DEEP BLUE",
+    seriesId:      "pp",
+    seriesName:    "Patek Philippe Design",
+    tagline:       "The Signature",
+    description:   "Deep blue dial with silver-tone chain bracelet. Clean. Minimal. Commanding. A watch for the man who leads without raising his voice.",
+    price:         3799,
+    originalPrice: 5000,
+    image:         "/products/pp/single-tone/deep-blue/1.webp",
+    images:        [
+      "/products/pp/single-tone/deep-blue/1.webp",
+      "/products/pp/single-tone/deep-blue/2.webp",
+      "/products/pp/single-tone/deep-blue/3.webp",
+      "/products/pp/single-tone/deep-blue/4.webp",
+    ],
+    tag: "Bestseller",
+  },
+  {
+    id:            "pp-ice-blue",
+    name:          "PP ICE BLUE",
+    seriesId:      "pp",
+    seriesName:    "Patek Philippe Design",
+    tagline:       "Cool & Deliberate",
+    description:   "Ice blue dial with a silver chain. Subtle. Cool. Effortlessly elegant. A watch that works for every occasion, boardroom to wedding.",
+    price:         3799,
+    originalPrice: 5000,
+    image:         "/products/pp/single-tone/ice-blue/1.webp",
+    images:        [
+      "/products/pp/single-tone/ice-blue/1.webp",
+      "/products/pp/single-tone/ice-blue/2.webp",
+      "/products/pp/single-tone/ice-blue/3.webp",
+      "/products/pp/single-tone/ice-blue/4.webp",
+    ],
+  },
+  {
+    id:            "pp-classic-black",
+    name:          "PP CLASSIC BLACK",
+    seriesId:      "pp",
+    seriesName:    "Patek Philippe Design",
+    tagline:       "Bold & Silent",
+    description:   "All black. No compromises. This is the watch you wear when your presence alone is the statement.",
+    price:         3799,
+    originalPrice: 5000,
+    image:         "/products/pp/single-tone/black/1.webp",
+    images:        [
+      "/products/pp/single-tone/black/1.webp",
+      "/products/pp/single-tone/black/2.webp",
+      "/products/pp/single-tone/black/3.webp",
+      "/products/pp/single-tone/black/4.webp",
+    ],
+  },
+  {
+    id:            "pp-ivory-white",
+    name:          "PP IVORY WHITE",
+    seriesId:      "pp",
+    seriesName:    "Patek Philippe Design",
+    tagline:       "Pure Refinement",
+    description:   "Crisp white dial on a silver chain. The watch you wear when everything else needs to be perfect.",
+    price:         3799,
+    originalPrice: 5000,
+    image:         "/products/pp/single-tone/white/1.webp",
+    images:        [
+      "/products/pp/single-tone/white/1.webp",
+      "/products/pp/single-tone/white/2.webp",
+      "/products/pp/single-tone/white/3.webp",
+      "/products/pp/single-tone/white/4.webp",
+    ],
+  },
+
+  // ─── Tissot Design ─────────────────────────────────────────────────────────
+  {
+    id:            "tst-royal-blue",
+    name:          "ROYAL BLUE",
+    seriesId:      "tst",
+    seriesName:    "Tissot Design",
+    tagline:       "Reach Higher",
+    description:   "Deep blue precision dial. A watch that means business every day without exception. Wear it to the office. Wear it to close the deal.",
+    price:         3799,
+    originalPrice: 6000,
+    image:         "/products/tst/single-tone/deep-blue/1.webp",
+    images:        [
+      "/products/tst/single-tone/deep-blue/1.webp",
+      "/products/tst/single-tone/deep-blue/2.webp",
+      "/products/tst/single-tone/deep-blue/3.webp",
+    ],
+    tag: "New",
+  },
+  {
+    id:            "tst-noble-silver",
+    name:          "NOBLE SILVER",
+    seriesId:      "tst",
+    seriesName:    "Tissot Design",
+    tagline:       "Polished Precision",
+    description:   "Clean white dial, brushed silver case. Timeless Swiss-inspired precision for the everyday achiever who understands that detail is everything.",
+    price:         3799,
+    originalPrice: 6000,
+    image:         "/products/tst/single-tone/white/1.webp",
+    images:        ["/products/tst/single-tone/white/1.webp"],
+  },
+  {
+    id:            "tst-jet-black",
+    name:          "JET BLACK",
+    seriesId:      "tst",
+    seriesName:    "Tissot Design",
+    tagline:       "Dark Precision",
+    description:   "Matte black dial. Structured case. Luminous accents. For the man who operates in the dark and is still the sharpest in the room.",
+    price:         3799,
+    originalPrice: 6000,
+    image:         "/products/tst/single-tone/black/1.webp",
+    images:        ["/products/tst/single-tone/black/1.webp"],
+  },
+  {
+    id:            "tst-sapphire-blue",
+    name:          "SAPPHIRE BLUE",
+    seriesId:      "tst",
+    seriesName:    "Tissot Design",
+    tagline:       "Cool by Nature",
+    description:   "Sapphire blue dial with precision detailing. When everyone else is wearing black or deep blue, you're wearing something they've never seen.",
+    price:         3799,
+    originalPrice: 6000,
+    image:         "/products/tst/single-tone/sapphire-blue/1.webp",
+    images:        ["/products/tst/single-tone/sapphire-blue/1.webp"],
+    tag: "Limited",
+  },
+
+  // ─── Hublot Design — Skeleton Dial ────────────────────────────────────────
+  {
+    id:            "hbl-black-skeleton",
+    name:          "BLACK SKELETON",
+    seriesId:      "hbl",
+    seriesName:    "Hublot Design",
+    tagline:       "Pure Blackout",
+    description:   "Black skeleton dial. Every gear, every bridge, fully exposed. This is a watch that does not hide anything, because it has nothing to hide.",
+    price:         2999,
+    originalPrice: 5000,
+    image:         "/products/hublot/skeleton-dial/black/1.webp",
+    images:        ["/products/hublot/skeleton-dial/black/1.webp"],
+    tag: "Premium",
+  },
+  {
+    id:            "hbl-blue-skeleton",
+    name:          "BLUE SKELETON",
+    seriesId:      "hbl",
+    seriesName:    "Hublot Design",
+    tagline:       "Deep & Deliberate",
+    description:   "Blue skeleton dial with an open-heart movement that draws the eye immediately. Cool depth, bold engineering. For the man who appreciates what goes into a watch.",
+    price:         2999,
+    originalPrice: 5000,
+    image:         "/products/hublot/skeleton-dial/blue/1.webp",
+    images:        ["/products/hublot/skeleton-dial/blue/1.webp"],
+  },
+  {
+    id:            "hbl-brown-skeleton",
+    name:          "BROWN SKELETON",
+    seriesId:      "hbl",
+    seriesName:    "Hublot Design",
+    tagline:       "Warm Authority",
+    description:   "Brown skeleton dial. Warm tones, structured movement, serious presence. The rare combination of warmth and weight that turns heads in any room.",
+    price:         2999,
+    originalPrice: 5000,
+    image:         "/products/hublot/skeleton-dial/brown/1.webp",
+    images:        ["/products/hublot/skeleton-dial/brown/1.webp"],
+  },
+  {
+    id:            "hbl-white-skeleton",
+    name:          "WHITE SKELETON",
+    seriesId:      "hbl",
+    seriesName:    "Hublot Design",
+    tagline:       "Clean Power",
+    description:   "White skeleton dial. Bright, sharp, and technical. The movement is the design. Worn by the man who understands that precision is its own statement.",
+    price:         2999,
+    originalPrice: 5000,
+    image:         "/products/hublot/skeleton-dial/white/1.webp",
+    images:        ["/products/hublot/skeleton-dial/white/1.webp"],
+  },
+
+  // ─── Patek Philippe Dual Tone ─────────────────────────────────────────────
+  {
+    id:            "ppd-midnight-black",
+    name:          "MIDNIGHT BLACK",
+    seriesId:      "ppd",
+    seriesName:    "Patek Philippe Dual Tone",
+    tagline:       "Dark Authority",
+    description:   "Black dial on a gold and silver two-tone chain bracelet. Contrast that commands the room. This is not a watch you wear to blend in.",
+    price:         3999,
+    originalPrice: 6500,
+    image:         "/products/pp/dual-tone/black/1.webp",
+    images:        [
+      "/products/pp/dual-tone/black/1.webp",
+      "/products/pp/dual-tone/black/2.webp",
+      "/products/pp/dual-tone/black/3.webp",
+      "/products/pp/dual-tone/black/4.webp",
+    ],
+    tag: "Bestseller",
+  },
+  {
+    id:            "ppd-champange-gold",
+    name:          "CHAMPAGNE GOLD",
+    seriesId:      "ppd",
+    seriesName:    "Patek Philippe Dual Tone",
+    tagline:       "Maximum Impact",
+    description:   "Gold dial, gold and silver bracelet. Full presence, no apology. The watch that walks into a room before you do.",
+    price:         3999,
+    originalPrice: 6500,
+    image:         "/products/pp/dual-tone/gold/1.webp",
+    images:        [
+      "/products/pp/dual-tone/gold/1.webp",
+      "/products/pp/dual-tone/gold/2.webp",
+      "/products/pp/dual-tone/gold/3.webp",
+      "/products/pp/dual-tone/gold/4.webp",
+    ],
+  },
+  {
+    id:            "ppd-pearl-white",
+    name:          "PEARL WHITE",
+    seriesId:      "ppd",
+    seriesName:    "Patek Philippe Dual Tone",
+    tagline:       "Quiet Elegance",
+    description:   "White dial on a dual tone chain. Clean, refined, unmistakably premium. The choice of the man who lets quality do the talking.",
+    price:         3999,
+    originalPrice: 6500,
+    image:         "/products/pp/dual-tone/white/1.webp",
+    images:        [
+      "/products/pp/dual-tone/white/1.webp",
+      "/products/pp/dual-tone/white/2.webp",
+      "/products/pp/dual-tone/white/3.webp",
+      "/products/pp/dual-tone/white/4.webp",
+    ],
+  },
+];

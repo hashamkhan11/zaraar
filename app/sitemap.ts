@@ -1,30 +1,28 @@
 import type { MetadataRoute } from "next";
-import { catalog } from "@/data/catalog";
+import { CATALOG } from "@/data/products";
 
-const BASE = "https://watchesbyfahad.com";
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zaraar.pk";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const productUrls: MetadataRoute.Sitemap = catalog.flatMap((cat) =>
-    cat.groups.map((group) => ({
-      url: `${BASE}/product/${group.id}/`,
-      lastModified: new Date(),
-      changeFrequency: "weekly" as const,
-      priority: 0.9,
-    }))
-  );
+  const productUrls: MetadataRoute.Sitemap = CATALOG.map(p => ({
+    url: `${BASE}/product/${p.id}/`,
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.9,
+  }));
 
   return [
     {
-      url: BASE,
+      url: `${BASE}/`,
       lastModified: new Date(),
       changeFrequency: "weekly" as const,
       priority: 1.0,
     },
     {
-      url: `${BASE}/track`,
+      url: `${BASE}/about/`,
       lastModified: new Date(),
       changeFrequency: "monthly" as const,
-      priority: 0.5,
+      priority: 0.6,
     },
     ...productUrls,
   ];

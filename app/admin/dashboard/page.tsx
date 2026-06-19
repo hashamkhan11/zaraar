@@ -1,104 +1,93 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import {
   subscribeToOrders, updateOrderStatus, updateOrder, deleteOrder, createOrder,
-  Order, OrderStatus, OrderData,
+  updatePublicStats, Order, OrderStatus, OrderData,
 } from "@/lib/orders";
 import { subscribeToStock, setStock, adjustStock, StockMap } from "@/lib/stock";
-import { catalog } from "@/data/catalog";
-import { postexBook, postexTrack, POSTEX_TO_ORDER_STATUS, POSTEX_STATUS } from "@/lib/postex";
-import Link from "next/link";
+import { CATALOG } from "@/data/products";
 import {
-  LogOut, Loader2, CheckCheck, XCircle, Clock,
-  Undo2, Trash2, AlertTriangle, Plus, Copy, Check, Truck,
-  MessageCircle, X, Search, ShoppingBag, Package,
-  Download, Edit2, BarChart2, AlertCircle, RefreshCw,
-  ExternalLink, Phone, Send, Zap, MapPin, FileText,
+  subscribeToExpenses, addExpense, deleteExpense,
+  Expense, ExpenseData, ExpenseType,
+  EXPENSE_LABELS, EXPENSE_IS_INCOME, EXPENSE_COLORS,
+} from "@/lib/finance";
+import { postexBook } from "@/lib/postex";
+import {
+  LayoutDashboard, ShoppingCart, Truck, Package, BarChart2,
+  LogOut, Loader2, CheckCheck, Clock, Trash2,
+  AlertTriangle, Copy, Check, MessageCircle, X, Search,
+  Download, Edit2, AlertCircle, RefreshCw, Phone, Zap,
+  MapPin, FileText, TrendingUp, Menu, ChevronRight, Bell,
+  Plus, Volume2, VolumeX, XOctagon, CheckCircle2,
+  DollarSign, TrendingDown, ArrowUpRight, ArrowDownRight, RotateCcw, Calendar,
 } from "lucide-react";
 
-const allVariants = catalog.flatMap(cat =>
-  cat.groups.flatMap(g =>
-    g.variants.map(v => ({
-      id:    `${g.id}-${v.id}`,
-      name:  `${g.fullName} — ${v.name}`,
-      price: g.price,
-    }))
-  )
-);
+// ─── Catalog flat list ────────────────────────────────────────────────────────
+const allVariants = CATALOG.map(p => ({
+  id:    p.id,
+  name:  `${p.name} | ${p.seriesName}`,
+  price: p.price,
+}));
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+type Page = "dashboard" | "orders" | "logistics" | "inventory" | "analytics" | "finance";
+type DateFilter = "all" | "today" | "yesterday" | "week" | "month" | "custom";
 
-type DateFilter = "all" | "today" | "yesterday" | "week" | "month";
-
-// ── Status config — ALL 8 statuses ────────────────────────────────────────────
-
-const SC: Record<OrderStatus, { label: string; bg: string; text: string; border: string; icon: React.ReactNode }> = {
-  pending:        { label: "Pending",        bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  icon: <Clock className="w-3 h-3" /> },
-  confirmed:      { label: "Confirmed",      bg: "bg-blue-50",    text: "text-blue-700",   border: "border-blue-200",   icon: <CheckCheck className="w-3 h-3" /> },
-  dispatched:     { label: "Dispatched",     bg: "bg-indigo-50",  text: "text-indigo-700", border: "border-indigo-200", icon: <Send className="w-3 h-3" /> },
-  in_transit:     { label: "In Transit",     bg: "bg-sky-50",     text: "text-sky-700",    border: "border-sky-200",    icon: <Truck className="w-3 h-3" /> },
-  delivered:      { label: "Delivered",      bg: "bg-green-50",   text: "text-green-700",  border: "border-green-200",  icon: <Check className="w-3 h-3" /> },
-  failed_delivery:{ label: "Failed Delivery",bg: "bg-orange-50",  text: "text-orange-700", border: "border-orange-200", icon: <AlertCircle className="w-3 h-3" /> },
-  returned:       { label: "Returned",       bg: "bg-purple-50",  text: "text-purple-700", border: "border-purple-200", icon: <Undo2 className="w-3 h-3" /> },
-  cancelled:      { label: "Cancelled",      bg: "bg-red-50",     text: "text-red-600",    border: "border-red-200",    icon: <XCircle className="w-3 h-3" /> },
+// ─── Status config ────────────────────────────────────────────────────────────
+const SC: Record<OrderStatus, { label: string; bg: string; text: string; border: string; dot: string }> = {
+  pending:           { label: "Pending",            bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-400"  },
+  confirmed:         { label: "Confirmed",          bg: "bg-blue-50",    text: "text-blue-700",   border: "border-blue-200",   dot: "bg-blue-500"   },
+  dispatched:        { label: "Dispatched",         bg: "bg-indigo-50",  text: "text-indigo-700", border: "border-indigo-200", dot: "bg-indigo-500" },
+  in_transit:        { label: "In Transit",         bg: "bg-sky-50",     text: "text-sky-700",    border: "border-sky-200",    dot: "bg-sky-500"    },
+  delivered:         { label: "Delivered",          bg: "bg-green-50",   text: "text-green-700",  border: "border-green-200",  dot: "bg-green-500"  },
+  failed_delivery:   { label: "Failed Delivery",    bg: "bg-orange-50",  text: "text-orange-700", border: "border-orange-200", dot: "bg-orange-500" },
+  return_in_transit: { label: "Return in Transit",  bg: "bg-rose-50",    text: "text-rose-700",   border: "border-rose-200",   dot: "bg-rose-500"   },
+  returned:          { label: "Return Received",    bg: "bg-purple-50",  text: "text-purple-700", border: "border-purple-200", dot: "bg-purple-500" },
+  cancelled:         { label: "Cancelled",          bg: "bg-red-50",     text: "text-red-600",    border: "border-red-200",    dot: "bg-red-500"    },
 };
 
 const TRANS: Record<OrderStatus, { next: OrderStatus; label: string; primary?: boolean; danger?: boolean }[]> = {
-  pending:        [{ next: "confirmed", label: "Confirm", primary: true }, { next: "cancelled", label: "Cancel", danger: true }],
-  confirmed:      [{ next: "dispatched", label: "Mark Dispatched", primary: true }, { next: "cancelled", label: "Cancel", danger: true }, { next: "pending", label: "Revert Pending" }],
-  dispatched:     [{ next: "in_transit", label: "In Transit", primary: true }, { next: "confirmed", label: "Revert Confirmed" }],
-  in_transit:     [{ next: "delivered", label: "Mark Delivered", primary: true }, { next: "failed_delivery", label: "Failed Delivery", danger: true }],
-  delivered:      [{ next: "returned", label: "Mark Returned" }, { next: "in_transit", label: "Revert In Transit" }],
-  failed_delivery:[{ next: "in_transit", label: "Retry Delivery", primary: true }, { next: "returned", label: "Return to Origin", danger: true }],
-  returned:       [{ next: "delivered", label: "Revert Delivered" }, { next: "pending", label: "Reopen as Pending" }],
-  cancelled:      [{ next: "pending", label: "Reopen Order", primary: true }],
+  pending:           [{ next: "confirmed",          label: "Confirm Order",      primary: true }, { next: "cancelled",          label: "Cancel",            danger: true }],
+  confirmed:         [{ next: "dispatched",         label: "Mark Dispatched",    primary: true }, { next: "cancelled",          label: "Cancel",            danger: true }, { next: "pending", label: "Revert" }],
+  dispatched:        [{ next: "in_transit",         label: "In Transit",         primary: true }, { next: "confirmed",          label: "Revert" }],
+  in_transit:        [{ next: "delivered",          label: "Mark Delivered",     primary: true }, { next: "failed_delivery",    label: "Failed Delivery",   danger: true }],
+  delivered:         [{ next: "return_in_transit",  label: "Return in Transit",  danger: true  }, { next: "in_transit",         label: "Revert" }],
+  failed_delivery:   [{ next: "in_transit",         label: "Retry Delivery",     primary: true }, { next: "return_in_transit",  label: "Return to Origin",  danger: true }],
+  return_in_transit: [{ next: "returned",           label: "Return Received",    primary: true }, { next: "in_transit",         label: "Retry Delivery" }],
+  returned:          [{ next: "pending",            label: "Reopen Order",       primary: true }],
+  cancelled:         [{ next: "pending",            label: "Reopen Order",       primary: true }],
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function stockDelta(prev: OrderStatus, next: OrderStatus, qty: number): number {
-  const wasDelivered = prev === "delivered";
-  const wasReturned  = prev === "returned";
-  const nowDelivered = next === "delivered";
-  const nowReturned  = next === "returned";
-  if (!wasDelivered && nowDelivered) return -qty;
-  if (wasDelivered && !nowDelivered) return +qty;
-  if (!wasReturned && nowReturned)   return +qty;
-  if (wasReturned && !nowReturned)   return -qty;
+  if (prev !== "delivered"         && next === "delivered")         return -qty;
+  if (prev === "delivered"         && next !== "delivered")         return +qty;
+  if (prev !== "returned"          && next === "returned")          return +qty;
+  if (prev === "returned"          && next !== "returned")          return -qty;
+  if (prev !== "return_in_transit" && next === "return_in_transit") return +qty;
+  if (prev === "return_in_transit" && next !== "return_in_transit") return -qty;
   return 0;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function useCopy() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = async (text: string, key: string) => {
-    try { await navigator.clipboard.writeText(text); } catch {}
-    setCopied(key);
-    setTimeout(() => setCopied(null), 2000);
-  };
-  return { copied, copy };
-}
-
-function Badge({ status }: { status: OrderStatus }) {
-  const s = SC[status];
-  if (!s) return null;
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${s.bg} ${s.text} ${s.border}`}>
-      {s.icon}{s.label}
-    </span>
-  );
-}
-
 function fmtDate(d: unknown) {
-  return d instanceof Date
-    ? d.toLocaleDateString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-    : "—";
+  let date: Date | null = null;
+  if (d instanceof Date) date = d;
+  else if (d && typeof (d as { toDate?: unknown }).toDate === "function") {
+    date = (d as { toDate: () => Date }).toDate();
+  }
+  if (!date) return "—";
+  return date.toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-function orderAgeHours(o: Order): number {
+function fmtDay(d: Date) {
+  return d.toLocaleDateString("en-PK", { day: "numeric", month: "short" });
+}
+
+function orderAgeHours(o: Order) {
   if (!(o.createdAt instanceof Date)) return 0;
   return (Date.now() - o.createdAt.getTime()) / 3600000;
 }
@@ -113,104 +102,299 @@ function dateRangeFor(f: DateFilter): { start: Date; end: Date } | null {
     const ye = new Date(today); ye.setMilliseconds(-1);
     return { start: y, end: ye };
   }
-  if (f === "week") { const s = new Date(today); s.setDate(s.getDate() - 6); return { start: s, end: now }; }
+  if (f === "week")  { const s = new Date(today); s.setDate(s.getDate() - 6);  return { start: s, end: now }; }
   if (f === "month") { const s = new Date(today); s.setDate(s.getDate() - 29); return { start: s, end: now }; }
   return null;
 }
 
 function exportCSV(orders: Order[]) {
-  const header = ["ID", "Name", "Phone", "City", "Address", "Product", "Qty", "Price", "Total", "Status", "Courier", "CN", "Date", "Note"];
+  const header = ["ID","Name","Phone","City","Address","Product","Qty","Price","Total","Status","Courier","CN","Date","Note"];
   const rows = orders.map(o => [
     o.id, o.name, o.phone, o.city,
-    `"${o.address.replace(/"/g, '""')}"`,
-    o.productName, o.quantity, o.price, o.price * o.quantity, o.status,
-    o.courierName ?? "", o.trackingNumber ?? "",
+    o.address ? `"${o.address.replace(/"/g,'""')}"` : "",
+    o.productName, o.quantity, o.price, o.price * o.quantity,
+    o.status, o.courierName ?? "", o.trackingNumber ?? "",
     o.createdAt instanceof Date ? o.createdAt.toISOString() : "",
-    o.note ? `"${o.note.replace(/"/g, '""')}"` : "",
+    o.note ? `"${o.note.replace(/"/g,'""')}"` : "",
   ]);
   const csv = [header, ...rows].map(r => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href = url;
-  a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `orders-${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
 
-function buildDispatchWAMsg(order: Order): string {
+function buildWAMsg(order: Order): string {
   const total = order.price * order.quantity;
   const cn = order.trackingNumber ?? "";
-  const trackUrl = cn ? `https://watchesbyfahad.com/track?cn=${encodeURIComponent(cn)}` : "";
+  return encodeURIComponent([
+    `Your order has been dispatched! 🚚`,
+    `━━━━━━━━━━━━━`,
+    `👤 *Name:* ${order.name}`,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    "",
+    cn ? `📋 *Tracking Number:* ${cn}` : "",
+    "",
+    `📞 For any queries, message us here`,
+    `━━━━━━━━━━━━━`,
+    `_ZARAAR — Your Trust, Our Pride_`,
+  ].filter(Boolean).join("\n"));
+}
+
+function waHref(order: Order) {
+  return `https://wa.me/92${order.phone.replace(/^0/,"")}?text=${buildWAMsg(order)}`;
+}
+
+// ─── Status-specific WA message builders ─────────────────────────────────────
+function waMsg_confirmed(order: Order): string {
+  const total = order.price * order.quantity;
   return [
-    `*آپ کا آرڈر روانہ ہو گیا* 🚚`,
-    `━━━━━━━━━━━━━`,
-    `👤 *نام:* ${order.name}`,
-    `📦 *پراڈکٹ:* ${order.productName}`,
-    `💰 *COD رقم:* PKR ${total.toLocaleString()}`,
+    `Hi ${order.name}! 👋`,
     ``,
-    cn ? `*ٹریکنگ نمبر:* ${cn}` : null,
-    trackUrl ? `🔗 *ٹریک کریں:* ${trackUrl}` : null,
+    `Your order with *ZARAAR* has been confirmed ✅`,
     ``,
-    `📞 کوئی سوال ہو تو یہاں پیغام کریں`,
-    `━━━━━━━━━━━━━`,
-    `_WatchesByFahad — آپ کا اعتماد ہماری پہچان_`,
+    `📦 *Product:* ${order.productName}`,
+    `🔢 *Quantity:* ${order.quantity}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    `📍 *Delivery to:* ${order.city}`,
+    ``,
+    `We will dispatch your order soon and share the tracking number with you.`,
+    ``,
+    `Thank you for shopping with us! 🙏`,
+    `— ZARAAR`,
+  ].join("\n");
+}
+
+function waMsg_dispatched(order: Order): string {
+  const total = order.price * order.quantity;
+  const cn = order.trackingNumber ?? "";
+  return [
+    `Hi ${order.name}! 🚚`,
+    ``,
+    `Your *ZARAAR* order has been dispatched!`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    cn ? `📋 *Tracking Number:* ${cn}` : "",
+    ``,
+    `Please keep the COD amount ready upon delivery.`,
+    ``,
+    `📞 Any questions? Message us here!`,
+    `— ZARAAR`,
   ].filter(Boolean).join("\n");
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
+function waMsg_outForDelivery(order: Order): string {
+  const total = order.price * order.quantity;
+  const cn = order.trackingNumber ?? "";
+  return [
+    `Hi ${order.name}! 📦`,
+    ``,
+    `Great news — your *ZARAAR* order is *out for delivery today!*`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()} _(please keep cash ready)_`,
+    cn ? `📋 *Tracking:* ${cn}` : "",
+    ``,
+    `Please be available to receive your order.`,
+    ``,
+    `Thank you! 🙏`,
+    `— ZARAAR`,
+  ].filter(Boolean).join("\n");
+}
 
+function waMsg_delivered(order: Order): string {
+  return [
+    `Hi ${order.name}! 🎉`,
+    ``,
+    `Your *ZARAAR* order has been delivered — we hope you love it! ❤️`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    ``,
+    `If you're happy with your purchase, please share it with your friends and family! 😊`,
+    ``,
+    `Thank you for shopping with us!`,
+    `— ZARAAR`,
+  ].join("\n");
+}
+
+function waMsg_failedDelivery(order: Order): string {
+  const total = order.price * order.quantity;
+  return [
+    `Hi ${order.name},`,
+    ``,
+    `We attempted to deliver your order but were unable to reach you. 😔`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    ``,
+    `Please reply here or call us to reschedule your delivery at your convenience.`,
+    ``,
+    `— ZARAAR`,
+  ].join("\n");
+}
+
+function waMsg_returned(order: Order): string {
+  const total = order.price * order.quantity;
+  return [
+    `Hi ${order.name},`,
+    ``,
+    `Your order has been returned to us as we were unable to complete the delivery.`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    ``,
+    `If you'd like to re-order or have any questions, please message us here.`,
+    ``,
+    `— ZARAAR`,
+  ].join("\n");
+}
+
+function waMsg_returnInTransit(order: Order): string {
+  const total = order.price * order.quantity;
+  return [
+    `Hi ${order.name},`,
+    ``,
+    `Your *ZARAAR* order is currently on its way back to us. 📦`,
+    ``,
+    `📦 *Product:* ${order.productName}`,
+    `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
+    ``,
+    `If you'd like to reschedule delivery or have any questions, please reply here.`,
+    ``,
+    `— ZARAAR`,
+  ].join("\n");
+}
+
+// Returns contextually relevant WA messages for the current order status
+function getWAMsgs(order: Order): { key: string; label: string; text: string }[] {
+  const map: Record<OrderStatus, { key: string; label: string; text: string }[]> = {
+    pending:         [{ key:"confirm",         label:"✅ Order Confirmed",        text: waMsg_confirmed(order) }],
+    confirmed:       [{ key:"confirm",         label:"✅ Order Confirmed",        text: waMsg_confirmed(order) },
+                     { key:"dispatch",         label:"🚚 Order Dispatched",       text: waMsg_dispatched(order) }],
+    dispatched:      [{ key:"dispatch",        label:"🚚 Order Dispatched",       text: waMsg_dispatched(order) },
+                     { key:"outForDelivery",   label:"📦 Out for Delivery",       text: waMsg_outForDelivery(order) }],
+    in_transit:      [{ key:"outForDelivery",  label:"📦 Out for Delivery",       text: waMsg_outForDelivery(order) },
+                     { key:"dispatch",         label:"🚚 Order Dispatched",       text: waMsg_dispatched(order) }],
+    delivered:         [{ key:"delivered",         label:"🎉 Thank You / Delivered",  text: waMsg_delivered(order) }],
+    failed_delivery:   [{ key:"failed",            label:"😔 Failed Delivery",        text: waMsg_failedDelivery(order) }],
+    return_in_transit: [{ key:"returnInTransit",   label:"📦 Return in Transit",      text: waMsg_returnInTransit(order) }],
+    returned:          [{ key:"returned",          label:"📦 Return Received",        text: waMsg_returned(order) }],
+    cancelled:         [],
+  };
+  return map[order.status] ?? [];
+}
+
+// ─── useCopy ──────────────────────────────────────────────────────────────────
+function useCopy() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
+  return { copied, copy };
+}
+
+// ─── Alert sound ──────────────────────────────────────────────────────────────
+function playNewOrderSound() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    ([0, 0.18, 0.36] as const).forEach((t, i) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = [880, 1100, 1320][i];
+      gain.gain.setValueAtTime(0.28, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.28);
+      osc.start(ctx.currentTime + t);
+      osc.stop(ctx.currentTime + t + 0.28);
+    });
+  } catch { /* ignore in SSR or restricted contexts */ }
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
 function Toast({ msg, onDone }: { msg: string; onDone: () => void }) {
   useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, [onDone]);
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5">
       <Check className="w-4 h-4 text-green-400 flex-shrink-0" />{msg}
     </div>
   );
 }
 
-// ── Revenue Chart ─────────────────────────────────────────────────────────────
+// ─── StatusBadge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status, size = "md" }: { status: OrderStatus; size?: "sm" | "md" }) {
+  const s = SC[status]; if (!s) return null;
+  return (
+    <span className={`inline-flex items-center gap-1.5 font-semibold rounded-full border ${s.bg} ${s.text} ${s.border} ${size === "sm" ? "text-[11px] px-2 py-0.5" : "text-xs px-2.5 py-1"}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.dot}`} />
+      {s.label}
+    </span>
+  );
+}
 
+// ─── KpiCard ──────────────────────────────────────────────────────────────────
+function KpiCard({ label, value, sub, icon, accent }: {
+  label: string; value: string; sub?: string; icon: React.ReactNode; accent?: boolean;
+}) {
+  return (
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 flex flex-col gap-3 ${accent ? "border-[#C4976A]/40 ring-1 ring-[#C4976A]/20" : "border-gray-100"}`}>
+      <div className="flex items-start justify-between">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+        <span className={`p-2 rounded-xl ${accent ? "bg-[#C4976A]/10 text-[#C4976A]" : "bg-gray-100 text-gray-500"}`}>{icon}</span>
+      </div>
+      <div>
+        <p className="text-2xl font-extrabold text-gray-900 tracking-tight">{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ─── RevenueChart ─────────────────────────────────────────────────────────────
 function RevenueChart({ orders }: { orders: Order[] }) {
   const days = useMemo(() => {
-    const result: { label: string; revenue: number; date: string; count: number }[] = [];
+    const result: { label: string; date: string; revenue: number; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+      const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - i);
       const next = new Date(d); next.setDate(next.getDate() + 1);
+      const active: OrderStatus[] = ["confirmed","dispatched","in_transit","delivered"];
       const dayOrders = orders.filter(o =>
-        (o.status === "confirmed" || o.status === "delivered" || o.status === "dispatched" || o.status === "in_transit") &&
-        o.createdAt instanceof Date && o.createdAt >= d && o.createdAt < next
+        active.includes(o.status) && o.createdAt instanceof Date && o.createdAt >= d && o.createdAt < next
       );
-      result.push({
-        label: d.toLocaleDateString("en-PK", { weekday: "short" }),
-        date: d.toLocaleDateString("en-PK", { day: "numeric", month: "short" }),
-        revenue: dayOrders.reduce((s, o) => s + o.price * o.quantity, 0),
-        count: dayOrders.length,
-      });
+      result.push({ label: d.toLocaleDateString("en-PK",{weekday:"short"}), date: fmtDay(d),
+        revenue: dayOrders.reduce((s,o) => s + o.price * o.quantity, 0), count: dayOrders.length });
     }
     return result;
   }, [orders]);
-
   const max = Math.max(...days.map(d => d.revenue), 1);
-
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="font-bold text-gray-900 text-sm">Revenue — Last 7 Days</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Active orders only</p>
+        </div>
         <BarChart2 className="w-4 h-4 text-[#C4976A]" />
-        <h3 className="font-bold text-gray-900 text-sm">Revenue — Last 7 Days</h3>
-        <span className="text-xs text-gray-400 ml-auto">Active orders</span>
       </div>
       <div className="flex items-end gap-2 h-28">
-        {days.map((d, i) => (
+        {days.map((d,i) => (
           <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
             <div
-              className="w-full rounded-t-lg bg-[#C4976A]/80 hover:bg-[#C4976A] transition-colors cursor-default"
-              style={{ height: `${Math.max((d.revenue / max) * 96, d.revenue > 0 ? 8 : 2)}px` }}
+              className="w-full rounded-t-lg bg-[#C4976A]/70 hover:bg-[#C4976A] transition-colors"
+              style={{ height: `${Math.max((d.revenue/max)*96, d.revenue > 0 ? 6 : 2)}px` }}
             />
-            <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center z-10 pointer-events-none">
-              <div className="bg-gray-900 text-white text-[10px] font-medium px-2 py-1 rounded-lg whitespace-nowrap text-center">
-                {d.date}<br />PKR {d.revenue.toLocaleString()}<br />{d.count} order{d.count !== 1 ? "s" : ""}
+            {d.revenue > 0 && (
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 pointer-events-none">
+                <div className="bg-gray-900 text-white text-[10px] font-medium px-2.5 py-1.5 rounded-lg whitespace-nowrap text-center shadow-xl">
+                  {d.date}<br/>PKR {d.revenue.toLocaleString()}<br/>{d.count} order{d.count!==1?"s":""}
+                </div>
               </div>
-              <div className="w-1.5 h-1.5 bg-gray-900 rotate-45 -mt-1" />
-            </div>
+            )}
             <span className="text-[10px] text-gray-400 font-medium">{d.label}</span>
           </div>
         ))}
@@ -219,1232 +403,1643 @@ function RevenueChart({ orders }: { orders: Order[] }) {
   );
 }
 
-// ── Stock Panel ───────────────────────────────────────────────────────────────
-
-function StockPanel({ stock, onSave }: { stock: StockMap; onSave: (id: string, val: number) => Promise<void> }) {
-  const [editing, setEditing] = useState<string | null>(null);
-  const [val, setVal] = useState("");
-  const [saving, setSaving] = useState(false);
-  const LOW = 5;
+// ─── DashboardPage ────────────────────────────────────────────────────────────
+function DashboardPage({ orders, onOpenOrder }: {
+  orders: Order[]; onOpenOrder: (o: Order) => void;
+}) {
+  const pending     = orders.filter(o => o.status === "pending");
+  const today       = new Date(); today.setHours(0,0,0,0);
+  const todayOrders = orders.filter(o => o.createdAt instanceof Date && o.createdAt >= today);
+  const weekStart   = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
+  const weekRevenue = orders
+    .filter(o => ["confirmed","dispatched","in_transit","delivered"].includes(o.status) && o.createdAt instanceof Date && o.createdAt >= weekStart)
+    .reduce((s,o) => s + o.price * o.quantity, 0);
+  const delivered     = orders.filter(o => o.status === "delivered").length;
+  const active        = orders.filter(o => !["cancelled","returned"].includes(o.status)).length;
+  const deliveryRate  = active > 0 ? Math.round((delivered/active)*100) : 0;
+  const urgentPending = pending.filter(o => orderAgeHours(o) > 2)
+    .sort((a,b) => (a.createdAt instanceof Date ? a.createdAt.getTime() : 0) - (b.createdAt instanceof Date ? b.createdAt.getTime() : 0));
+  const pipeline: OrderStatus[] = ["pending","confirmed","dispatched","in_transit","delivered","failed_delivery","return_in_transit","returned"];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Package className="w-4 h-4 text-[#C4976A]" />
-        <h3 className="font-bold text-gray-900 text-sm">Stock</h3>
-        <span className="text-xs text-gray-400 ml-auto">Admin only</span>
+    <div className="p-5 space-y-5 max-w-7xl mx-auto">
+      {pending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3">
+          <div className="p-2 bg-amber-100 rounded-xl flex-shrink-0"><Bell className="w-4 h-4 text-amber-600" /></div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-800">{pending.length} order{pending.length!==1?"s":""} waiting for action</p>
+            <p className="text-xs text-amber-600 mt-0.5">{urgentPending.length > 0 ? `${urgentPending.length} older than 2 hours` : "All within 2 hours"}</p>
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard label="Pending Action" value={String(pending.length)}
+          sub={urgentPending.length > 0 ? `${urgentPending.length} urgent` : "All recent"}
+          icon={<Clock className="w-4 h-4" />} accent={pending.length > 0} />
+        <KpiCard label="Today's Orders" value={String(todayOrders.length)}
+          sub={`PKR ${todayOrders.reduce((s,o) => s+o.price*o.quantity,0).toLocaleString()}`}
+          icon={<ShoppingCart className="w-4 h-4" />} />
+        <KpiCard label="Week Revenue"
+          value={`PKR ${weekRevenue >= 1000 ? (weekRevenue/1000).toFixed(1)+"k" : weekRevenue.toLocaleString()}`}
+          sub="Active orders" icon={<TrendingUp className="w-4 h-4" />} />
+        <KpiCard label="Delivery Rate" value={`${deliveryRate}%`}
+          sub={`${delivered} of ${active} active`} icon={<CheckCheck className="w-4 h-4" />} />
       </div>
-      <div className="space-y-2">
-        {allVariants.map(p => {
-          const qty = stock[p.id] ?? 0;
-          const low = qty <= LOW;
-          return (
-            <div key={p.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${low ? "bg-red-50" : "bg-gray-50"}`}>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <h3 className="font-bold text-gray-900 text-sm mb-4">Order Pipeline</h3>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          {pipeline.map((s,i) => (
+            <div key={s} className="flex items-center gap-1.5 flex-shrink-0">
+              <div className={`flex flex-col items-center px-4 py-3 rounded-xl min-w-[80px] ${SC[s].bg}`}>
+                <span className={`text-xl font-extrabold ${SC[s].text}`}>{orders.filter(o=>o.status===s).length}</span>
+                <span className={`text-[10px] font-semibold ${SC[s].text} opacity-80 mt-0.5 text-center leading-tight`}>{SC[s].label}</span>
               </div>
-              {editing === p.id ? (
-                <div className="flex items-center gap-2">
-                  <input type="number" min={0} value={val} onChange={e => setVal(e.target.value)}
-                    className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-900" autoFocus />
-                  <button disabled={saving}
-                    onClick={async () => { setSaving(true); await onSave(p.id, parseInt(val) || 0); setSaving(false); setEditing(null); }}
-                    className="text-xs font-bold text-white bg-gray-900 px-3 py-1.5 rounded-lg disabled:opacity-50">
-                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
-                  </button>
-                  <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+              {i < pipeline.length-1 && <ChevronRight className="w-3 h-3 text-gray-300 flex-shrink-0" />}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-5">
+        <RevenueChart orders={orders} />
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900 text-sm">Pending Orders</h3>
+            <span className="text-xs text-gray-400">{pending.length} total</span>
+          </div>
+          {pending.length === 0 ? (
+            <div className="text-center py-8">
+              <CheckCheck className="w-8 h-8 text-green-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">All caught up!</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pending.slice(0,6).map(o => {
+                const age = orderAgeHours(o); const urgent = age > 2;
+                return (
+                  <div key={o.id} onClick={() => onOpenOrder(o)}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors group">
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${urgent?"bg-red-500":"bg-amber-400"}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{o.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{o.productName} · PKR {(o.price*o.quantity).toLocaleString()}</p>
+                    </div>
+                    <p className={`text-xs font-semibold flex-shrink-0 ${urgent?"text-red-500":"text-amber-600"}`}>
+                      {age < 1 ? `${Math.round(age*60)}m` : `${age.toFixed(0)}h`} ago
+                    </p>
+                    <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                  </div>
+                );
+              })}
+              {pending.length > 6 && <p className="text-xs text-gray-400 text-center pt-1">{pending.length-6} more…</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── OrdersPage ───────────────────────────────────────────────────────────────
+function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
+  orders: Order[]; onOpenOrder: (o: Order) => void;
+  onExport: (orders: Order[]) => void;
+  onBulkStatus: (ids: string[], status: OrderStatus) => Promise<void>;
+}) {
+  const [search, setSearch]               = useState("");
+  const [statusFilter, setStatusFilter]   = useState<OrderStatus | "all">("all");
+  const [dateFilter, setDateFilter]       = useState<DateFilter>("all");
+  const [customStart, setCustomStart]     = useState("");
+  const [customEnd, setCustomEnd]         = useState("");
+  const [selected, setSelected]           = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading]     = useState(false);
+  const [bulkTarget, setBulkTarget]       = useState<OrderStatus | "">("");
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const filtered = useMemo(() => {
+    let start: Date | null = null;
+    let end: Date | null = null;
+    if (dateFilter !== "all" && dateFilter !== "custom") {
+      const range = dateRangeFor(dateFilter);
+      if (range) { start = range.start; end = range.end; }
+    } else if (dateFilter === "custom" && customStart) {
+      start = new Date(customStart + "T00:00:00");
+      end   = customEnd ? new Date(customEnd + "T23:59:59") : new Date();
+    }
+    return orders.filter(o => {
+      if (statusFilter !== "all" && o.status !== statusFilter) return false;
+      if (start && (!(o.createdAt instanceof Date) || o.createdAt < start)) return false;
+      if (end   && (!(o.createdAt instanceof Date) || o.createdAt > end))   return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!o.name.toLowerCase().includes(q) && !o.phone.includes(q) && !o.id.toLowerCase().includes(q) && !o.city.toLowerCase().includes(q) && !o.productName.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [orders, statusFilter, dateFilter, customStart, customEnd, search]);
+
+  const allSel   = filtered.length > 0 && filtered.every(o => selected.has(o.id));
+  const toggleAll = () => allSel ? setSelected(new Set()) : setSelected(new Set(filtered.map(o => o.id)));
+  const toggleOne = (id: string) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
+  const selIds   = filtered.filter(o => selected.has(o.id)).map(o => o.id);
+
+  const handleBulkApply = async () => {
+    if (!bulkTarget || selIds.length === 0) return;
+    setBulkLoading(true);
+    await onBulkStatus(selIds, bulkTarget);
+    setBulkLoading(false);
+    setSelected(new Set());
+    setBulkTarget("");
+  };
+
+  return (
+    <div className="p-5 space-y-4 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Orders</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{filtered.length} of {orders.length} orders</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2">
+              <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value as OrderStatus | "")}
+                className="text-xs font-semibold border border-gray-200 rounded-xl bg-white px-3 py-2 focus:outline-none text-gray-700">
+                <option value="">— Set status —</option>
+                {(Object.keys(SC) as OrderStatus[]).map(s => <option key={s} value={s}>{SC[s].label}</option>)}
+              </select>
+              <button disabled={bulkLoading || !bulkTarget}
+                onClick={handleBulkApply}
+                className="text-xs font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5 transition-colors">
+                {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <CheckCheck className="w-3 h-3"/>}
+                Apply ({selIds.length})
+              </button>
+            </div>
+          )}
+          {selected.size > 0 && (
+            <button onClick={() => onExport(filtered.filter(o=>selected.has(o.id)))}
+              className="text-xs font-bold bg-gray-900 hover:bg-gray-800 text-white px-3 py-2 rounded-xl flex items-center gap-1.5">
+              <Download className="w-3 h-3"/> Export {selected.size}
+            </button>
+          )}
+          {selected.size === 0 && (
+            <button onClick={() => onExport(filtered)}
+              className="text-xs font-semibold border border-gray-200 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-xl flex items-center gap-1.5 transition-colors">
+              <Download className="w-3 h-3"/> Export CSV
+            </button>
+          )}
+        </div>
+      </div>
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2">
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, phone, order ID, city…"
+            className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>}
+        </div>
+        <select value={dateFilter} onChange={e => setDateFilter(e.target.value as DateFilter)}
+          className="text-sm border border-gray-200 rounded-xl bg-white px-3 py-2.5 focus:outline-none text-gray-700">
+          <option value="all">All dates</option>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="week">Last 7 days</option>
+          <option value="month">Last 30 days</option>
+          <option value="custom">Custom range…</option>
+        </select>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as OrderStatus | "all")}
+          className="text-sm border border-gray-200 rounded-xl bg-white px-3 py-2.5 focus:outline-none text-gray-700">
+          <option value="all">All statuses</option>
+          {(Object.keys(SC) as OrderStatus[]).map(s => <option key={s} value={s}>{SC[s].label}</option>)}
+        </select>
+      </div>
+      {/* Custom date range inputs */}
+      {dateFilter === "custom" && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+            <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0"/>
+            <span className="text-xs text-gray-400">From</span>
+            <input type="date" value={customStart} max={todayStr}
+              onChange={e => setCustomStart(e.target.value)}
+              className="text-sm text-gray-700 focus:outline-none bg-transparent"/>
+          </div>
+          <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+            <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0"/>
+            <span className="text-xs text-gray-400">To</span>
+            <input type="date" value={customEnd} min={customStart} max={todayStr}
+              onChange={e => setCustomEnd(e.target.value)}
+              className="text-sm text-gray-700 focus:outline-none bg-transparent"/>
+          </div>
+          {(customStart || customEnd) && (
+            <button onClick={() => { setCustomStart(""); setCustomEnd(""); }}
+              className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              <RotateCcw className="w-3 h-3"/> Clear
+            </button>
+          )}
+        </div>
+      )}
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                <th className="w-10 px-4 py-3"><input type="checkbox" checked={allSel} onChange={toggleAll} className="rounded"/></th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Order</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Customer</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">CN</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="w-10 px-4 py-3"/>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.length === 0
+                ? <tr><td colSpan={9} className="text-center py-12 text-gray-400 text-sm">No orders found</td></tr>
+                : filtered.map(o => {
+                    const urgent = o.status === "pending" && orderAgeHours(o) > 2;
+                    return (
+                      <tr key={o.id} onClick={() => onOpenOrder(o)} className={`cursor-pointer hover:bg-gray-50 transition-colors ${urgent?"bg-red-50/30":""}`}>
+                        <td className="px-4 py-3" onClick={e=>{e.stopPropagation();toggleOne(o.id);}}>
+                          <input type="checkbox" checked={selected.has(o.id)} onChange={()=>toggleOne(o.id)} className="rounded"/>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {urgent && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"/>}
+                            <span className="font-mono text-xs text-gray-400">#{o.orderNumber ?? o.id.slice(-6).toUpperCase()}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-gray-900">{o.name}</p>
+                          <p className="text-xs text-gray-400">{o.phone} · {o.city}</p>
+                          {o.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{o.address}</p>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-gray-700 max-w-[180px] truncate">{o.productName}</p>
+                          <p className="text-xs text-gray-400">Qty {o.quantity}</p>
+                        </td>
+                        <td className="px-4 py-3 font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</td>
+                        <td className="px-4 py-3"><StatusBadge status={o.status} size="sm"/></td>
+                        <td className="px-4 py-3">
+                          {o.trackingNumber
+                            ? <span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-lg">{o.trackingNumber}</span>
+                            : <span className="text-xs text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDate(o.createdAt)}</td>
+                        <td className="px-4 py-3"><ChevronRight className="w-4 h-4 text-gray-300"/></td>
+                      </tr>
+                    );
+                  })
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3 pb-28">
+        {filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 text-sm">No orders found</div>
+        ) : filtered.map(o => {
+          const urgent = o.status === "pending" && orderAgeHours(o) > 2;
+          return (
+            <div key={o.id}
+              className={`bg-white rounded-2xl border shadow-sm p-4 transition-shadow ${urgent?"border-red-200":"border-gray-100"} ${selected.has(o.id)?"ring-2 ring-gray-900/20":""}`}>
+              <div className="flex items-start gap-3 mb-2">
+                <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleOne(o.id)}
+                  onClick={e => e.stopPropagation()} className="mt-1 rounded flex-shrink-0"/>
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenOrder(o)}>
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        {urgent && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"/>}
+                        <p className="font-bold text-gray-900 truncate">{o.name}</p>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{o.phone} · {o.city}</p>
+                      {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
+                    </div>
+                    <StatusBadge status={o.status} size="sm"/>
+                  </div>
+                  <p className="text-sm text-gray-600 truncate mb-2">{o.productName}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</span>
+                    <span className="text-xs text-gray-400">{fmtDate(o.createdAt)}</span>
+                  </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <span className={`text-sm font-bold ${low ? "text-red-600" : "text-gray-900"}`}>
-                    {qty} {low && <span className="text-[10px] text-red-500 font-semibold">LOW</span>}
-                  </span>
-                  <button onClick={() => { setEditing(p.id); setVal(String(qty)); }}
-                    className="text-gray-300 hover:text-gray-600 transition-colors">
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
+              </div>
             </div>
           );
         })}
       </div>
+      {/* Mobile floating bulk bar */}
+      {selected.size > 0 && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900 text-white px-4 py-3 flex items-center gap-2 z-30 shadow-2xl">
+          <span className="text-sm font-bold flex-shrink-0">{selected.size} sel.</span>
+          <select value={bulkTarget} onChange={e => setBulkTarget(e.target.value as OrderStatus | "")}
+            className="flex-1 text-xs font-semibold rounded-xl px-2 py-2 focus:outline-none text-gray-900 bg-white">
+            <option value="">Set status…</option>
+            {(Object.keys(SC) as OrderStatus[]).map(s => <option key={s} value={s}>{SC[s].label}</option>)}
+          </select>
+          <button disabled={bulkLoading || !bulkTarget} onClick={handleBulkApply}
+            className="text-xs font-bold bg-[#C4976A] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5">
+            {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <CheckCheck className="w-3.5 h-3.5"/>}
+          </button>
+          <button onClick={() => onExport(filtered.filter(o=>selected.has(o.id)))}
+            className="text-xs font-bold bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-xl flex items-center gap-1.5">
+            <Download className="w-3.5 h-3.5"/>
+          </button>
+          <button onClick={() => setSelected(new Set())} className="p-2 text-gray-400 hover:text-white">
+            <X className="w-4 h-4"/>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Courier Booking Modal ─────────────────────────────────────────────────────
-
-function CourierModal({ order, onClose, onBooked }: {
-  order: Order;
-  onClose: () => void;
-  onBooked: (cn: string, courier: "postex" | "leopard") => Promise<void>;
+// ─── LogisticsPage ────────────────────────────────────────────────────────────
+function LogisticsPage({ orders, onOpenOrder, onBulkBook }: {
+  orders: Order[]; onOpenOrder: (o: Order) => void;
+  onBulkBook: (orders: Order[]) => Promise<void>;
 }) {
-  const [tab, setTab] = useState<"postex" | "leopard">("postex");
-  const [leopardCn, setLeopardCn] = useState(order.trackingNumber ?? "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [booking, setBooking]   = useState(false);
+  const needsBooking = orders.filter(o => (o.status==="confirmed"||o.status==="pending") && !o.trackingNumber);
+  const inTransit    = orders.filter(o => (o.status==="dispatched"||o.status==="in_transit") && o.trackingNumber);
+  const failed       = orders.filter(o => o.status==="failed_delivery");
 
-  const handlePostex = async () => {
-    setLoading(true); setError("");
-    try {
-      const result = await postexBook({
-        orderId: order.id,
-        name: order.name,
-        phone: order.phone,
-        address: order.address,
-        city: order.city,
-        productName: order.productName,
-        price: order.price,
-        quantity: order.quantity,
-      });
-      if (result.ok && result.trackingNumber) {
-        await onBooked(result.trackingNumber, "postex");
-        setSuccess(result.trackingNumber);
-      } else {
-        setError(result.error || "PostEx booking failed. Check city name and try again.");
-      }
-    } catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
-  };
-
-  const handleLeopard = async () => {
-    if (!leopardCn.trim()) { setError("Enter Leopard CN"); return; }
-    setLoading(true); setError("");
-    try {
-      await onBooked(leopardCn.trim().toUpperCase(), "leopard");
-      setSuccess(leopardCn.trim().toUpperCase());
-    } catch (e) { setError(String(e)); }
-    finally { setLoading(false); }
-  };
-
-  const inp = "w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white font-mono";
+  const toggleOne = (id: string) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
+  const allSel = needsBooking.length > 0 && needsBooking.every(o => selected.has(o.id));
+  const toggleAll = () => allSel ? setSelected(new Set()) : setSelected(new Set(needsBooking.map(o => o.id)));
+  const selOrders = needsBooking.filter(o => selected.has(o.id));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div>
-            <h2 className="font-bold text-gray-900">Book Courier</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{order.name} · {order.city}</p>
+    <div className="p-5 space-y-5 max-w-7xl mx-auto">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Logistics</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Courier booking, tracking, and dispatch management</p>
+      </div>
+      {/* Needs booking */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 p-5 border-b border-gray-100">
+          <div className="p-2 bg-amber-100 rounded-xl flex-shrink-0"><Truck className="w-4 h-4 text-amber-600"/></div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900 text-sm">Needs Courier Booking</h3>
+            <p className="text-xs text-gray-400">{needsBooking.length} orders ready to ship</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
+          {needsBooking.length > 0 && (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={toggleAll} className="text-xs text-gray-500 hover:text-gray-900 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors">
+                {allSel ? "Deselect all" : "Select all"}
+              </button>
+              {selOrders.length > 0 && (
+                <button disabled={booking} onClick={async()=>{setBooking(true);await onBulkBook(selOrders);setSelected(new Set());setBooking(false);}}
+                  className="text-xs font-bold bg-gray-900 hover:bg-gray-800 text-white px-3 py-2 rounded-xl flex items-center gap-1.5 disabled:opacity-50">
+                  {booking ? <Loader2 className="w-3 h-3 animate-spin"/> : <Zap className="w-3 h-3"/>}
+                  Book {selOrders.length} via PostEx
+                </button>
+              )}
+            </div>
+          )}
         </div>
-
-        {success ? (
-          <div className="px-6 py-8 text-center space-y-4">
-            <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mx-auto">
-              <Check className="w-7 h-7 text-green-600" />
-            </div>
-            <div>
-              <p className="font-bold text-gray-900 text-lg">Booked!</p>
-              <p className="text-sm text-gray-500 mt-1">Tracking Number</p>
-              <p className="font-mono text-xl font-bold text-gray-900 mt-1">{success}</p>
-            </div>
-            <button onClick={onClose}
-              className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors">
-              Done
-            </button>
+        {needsBooking.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm flex flex-col items-center gap-2">
+            <Check className="w-6 h-6 text-green-400"/> All confirmed orders have been booked
           </div>
         ) : (
-          <div className="px-6 py-5 space-y-4">
-            {/* Tabs */}
-            <div className="flex bg-gray-100 rounded-xl p-1">
-              {(["postex", "leopard"] as const).map(t => (
-                <button key={t} onClick={() => { setTab(t); setError(""); }}
-                  className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors capitalize ${tab === t ? "bg-white shadow-sm text-gray-900" : "text-gray-500"}`}>
-                  {t === "postex" ? "PostEx" : "Leopard"}
-                </button>
-              ))}
-            </div>
-
-            {/* Order summary */}
-            <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Product</span>
-                <span className="font-semibold text-gray-900 text-right max-w-[200px] truncate">{order.productName}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">COD Amount</span>
-                <span className="font-bold text-gray-900">PKR {(order.price * order.quantity).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Delivery City</span>
-                <span className="font-semibold text-gray-900">{order.city}</span>
-              </div>
-            </div>
-
-            {tab === "postex" ? (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5">
-                  This will create a PostEx COD shipment from <strong>Faisalabad</strong> and return a tracking number automatically.
-                </p>
-                {error && <p className="text-xs text-red-500 bg-red-50 border border-red-100 px-3 py-2.5 rounded-xl">{error}</p>}
-                <button onClick={handlePostex} disabled={loading}
-                  className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-                  {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Booking…</> : <><Zap className="w-4 h-4" />Book PostEx Shipment</>}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 mb-1.5">Leopard Tracking Number</label>
-                  <input value={leopardCn} onChange={e => setLeopardCn(e.target.value.toUpperCase())}
-                    placeholder="e.g. LP123456789PK" className={inp} />
+          <div className="divide-y divide-gray-50">
+            {needsBooking.map(o => (
+              <div key={o.id} className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50">
+                <input type="checkbox" checked={selected.has(o.id)} onChange={()=>toggleOne(o.id)}
+                  onClick={e=>e.stopPropagation()} className="rounded flex-shrink-0"/>
+                <div className="flex-1 min-w-0 cursor-pointer" onClick={()=>onOpenOrder(o)}>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <StatusBadge status={o.status} size="sm"/>
+                    <span className="text-sm font-semibold text-gray-900 truncate">{o.name}</span>
+                    {o.orderNumber && <span className="font-mono text-xs text-gray-400">#{o.orderNumber}</span>}
+                  </div>
+                  <p className="text-xs text-gray-400 truncate">{o.productName} · {o.city}</p>
                 </div>
-                <p className="text-xs text-gray-400">Enter the CN from your Leopard retail account manually.</p>
-                {error && <p className="text-xs text-red-500 bg-red-50 border border-red-100 px-3 py-2.5 rounded-xl">{error}</p>}
-                <button onClick={handleLeopard} disabled={loading || !leopardCn.trim()}
-                  className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-                  {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</> : <><Check className="w-4 h-4" />Save Leopard CN</>}
-                </button>
+                <p className="text-sm font-bold text-gray-900 flex-shrink-0">PKR {(o.price*o.quantity).toLocaleString()}</p>
+                <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 cursor-pointer" onClick={()=>onOpenOrder(o)}/>
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>
+      {/* Active shipments */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-sky-100 rounded-xl flex-shrink-0"><RefreshCw className="w-4 h-4 text-sky-600"/></div>
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm">Active Shipments</h3>
+              <p className="text-xs text-gray-400">{inTransit.length} with tracking</p>
+            </div>
+          </div>
+        </div>
+        {inTransit.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm">No active shipments</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Customer</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">CN</th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
+                  <th className="w-10 px-5 py-3"/>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {inTransit.map(o => (
+                  <tr key={o.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => onOpenOrder(o)}>
+                    <td className="px-5 py-3">
+                      <p className="font-semibold text-gray-900">{o.name}</p>
+                      <p className="text-xs text-gray-400">{o.city}</p>
+                    </td>
+                    <td className="px-5 py-3"><span className="font-mono text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-lg">{o.trackingNumber}</span></td>
+                    <td className="px-5 py-3"><StatusBadge status={o.status} size="sm"/></td>
+                    <td className="px-5 py-3"><ChevronRight className="w-4 h-4 text-gray-300"/></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {/* Failed deliveries */}
+      {failed.length > 0 && (
+        <div className="bg-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 p-5 border-b border-orange-100">
+            <div className="p-2 bg-orange-100 rounded-xl flex-shrink-0"><AlertCircle className="w-4 h-4 text-orange-600"/></div>
+            <div>
+              <h3 className="font-bold text-gray-900 text-sm">Failed Deliveries</h3>
+              <p className="text-xs text-gray-400">{failed.length} require action</p>
+            </div>
+          </div>
+          <div className="divide-y divide-orange-50">
+            {failed.map(o => (
+              <div key={o.id} onClick={() => onOpenOrder(o)} className="flex items-center gap-3 px-5 py-3.5 hover:bg-orange-50/50 cursor-pointer">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{o.name}</p>
+                  <p className="text-xs text-gray-400">{o.phone} · {o.city}</p>
+                  {o.address && <p className="text-xs text-gray-400 truncate">{o.address}</p>}
+                  {o.callNote && <p className="text-xs text-orange-600 mt-0.5 italic truncate">"{o.callNote}"</p>}
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  {o.callAttempts ? <p className="text-xs text-orange-500">{o.callAttempts} call{o.callAttempts!==1?"s":""}</p> : null}
+                  <p className="text-sm font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0"/>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Detail Modal ──────────────────────────────────────────────────────────────
-
-function DetailModal({ order, onClose, onStatusUpdate, onOrderUpdate, updating, onBookCourier, onSyncTracking, syncing }: {
-  order: Order; onClose: () => void;
-  onStatusUpdate: (id: string, next: OrderStatus) => Promise<void>;
-  onOrderUpdate: (id: string, data: Partial<OrderData>) => Promise<void>;
-  updating: boolean;
-  onBookCourier: () => void;
-  onSyncTracking: () => Promise<void>;
-  syncing: boolean;
-}) {
-  const { copied, copy } = useCopy();
-  const trans = TRANS[order.status] ?? [];
-  const total = order.price * order.quantity;
-  const waNum = order.phone.replace(/^0/, "92");
-  const waConfirmMsg = [
-    `*Order Confirmation* 📦`, `━━━━━━━━━━━━━`,
-    `👤 *Name:* ${order.name}`, `📱 *Phone:* ${order.phone}`,
-    `📦 *Product:* ${order.productName}`, `🔢 *Qty:* ${order.quantity}`,
-    `💰 *Amount:* PKR ${total.toLocaleString()}`,
-    `📍 *Address:* ${order.address}`, `🏙️ *City:* ${order.city}`,
-    order.note ? `📝 *Note:* ${order.note}` : null,
-    `━━━━━━━━━━━━━`, `✅ COD — Cash on Delivery`,
-  ].filter(Boolean).join("\n");
-  const waDispatchMsg = buildDispatchWAMsg(order);
-
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    name: order.name, phone: order.phone, address: order.address, city: order.city,
-    quantity: String(order.quantity), note: order.note ?? "",
-  });
+// ─── InventoryPage ────────────────────────────────────────────────────────────
+function InventoryPage({ stock, onSave }: { stock: StockMap; onSave: (id: string, val: number) => Promise<void> }) {
+  const [editing, setEditing] = useState<string|null>(null);
+  const [val, setVal] = useState("");
   const [saving, setSaving] = useState(false);
-  const [callNote, setCallNote] = useState("");
-  const [loggingCall, setLoggingCall] = useState(false);
-  const inp = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900";
-
-  const handleLogCall = async () => {
-    setLoggingCall(true);
-    await onOrderUpdate(order.id, {
-      callAttempts: (order.callAttempts ?? 0) + 1,
-      lastCallAt: new Date(),
-      callNote: callNote.trim() || undefined,
-    });
-    setCallNote("");
-    setLoggingCall(false);
-  };
-
-  const trackUrl = order.trackingNumber ? `https://watchesbyfahad.com/track?cn=${encodeURIComponent(order.trackingNumber)}` : null;
-  const postexSt = order.postexStatus ? POSTEX_STATUS[order.postexStatus] : null;
-
+  const LOW = 5;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[95vh] flex flex-col">
-
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-700 flex-shrink-0">
-              {order.name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="font-bold text-gray-900">{order.name}</p>
-              <p className="text-xs text-gray-400">{fmtDate(order.createdAt)}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge status={order.status} />
-            <button onClick={() => setEditing(e => !e)}
-              className={`p-1.5 rounded-lg transition-colors ${editing ? "bg-gray-900 text-white" : "hover:bg-gray-100 text-gray-400"}`}>
-              <Edit2 className="w-4 h-4" />
-            </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
-          </div>
-        </div>
-
-        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
-          {editing ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-xs font-semibold text-gray-500 mb-1">Name</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className={inp} /></div>
-                <div><label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} className={inp} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-xs font-semibold text-gray-500 mb-1">City</label><input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} className={inp} /></div>
-                <div><label className="block text-xs font-semibold text-gray-500 mb-1">Quantity</label><input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className={inp} /></div>
-              </div>
-              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Address</label><textarea rows={2} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className={`${inp} resize-none`} /></div>
-              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Note</label><input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} className={inp} placeholder="Optional…" /></div>
-            </div>
-          ) : (
-            <>
-              {/* Customer */}
-              <section>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Customer</p>
-                <div className="space-y-2.5">
-                  {([["Name", order.name, "nm"], ["Phone", order.phone, "ph"], ["City", order.city, "ct"]] as [string, string, string][]).map(([label, value, key]) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">{label}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">{value}</span>
-                        <button onClick={() => copy(value, key)} className="text-gray-300 hover:text-gray-600 transition-colors">
-                          {copied === key ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="text-sm text-gray-400 flex-shrink-0">Address</span>
-                    <div className="flex items-start gap-2 text-right">
-                      <span className="text-sm font-semibold text-gray-900">{order.address}</span>
-                      <button onClick={() => copy(order.address, "ad")} className="text-gray-300 hover:text-gray-600 transition-colors flex-shrink-0 mt-0.5">
-                        {copied === "ad" ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
+    <div className="p-5 space-y-5 max-w-4xl mx-auto">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Inventory</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Current stock levels — click pencil to edit</p>
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="divide-y divide-gray-50">
+          {allVariants.map(p => {
+            const qty = stock[p.id] ?? 0; const low = qty <= LOW; const out = qty === 0;
+            return (
+              <div key={p.id} className={`flex items-center gap-4 px-5 py-4 ${out?"bg-red-50/40":low?"bg-amber-50/30":""}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">PKR {p.price.toLocaleString()}</p>
                 </div>
-              </section>
-
-              <div className="border-t border-gray-100" />
-
-              {/* Order */}
-              <section>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Order</p>
-                <div className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="text-sm text-gray-400">Product</span>
-                    <span className="text-sm font-semibold text-gray-900 text-right">{order.productName}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-400">Quantity</span>
-                    <span className="text-sm font-semibold text-gray-900">{order.quantity}</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-2.5 border-t border-gray-100">
-                    <span className="text-sm font-bold text-gray-900">Total (COD)</span>
-                    <span className="text-lg font-bold text-gray-900">PKR {total.toLocaleString()}</span>
-                  </div>
-                </div>
-              </section>
-
-              {order.note && (
-                <>
-                  <div className="border-t border-gray-100" />
-                  <section>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Note</p>
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">{order.note}</p>
-                  </section>
-                </>
-              )}
-
-              {/* Courier & Tracking */}
-              <div className="border-t border-gray-100" />
-              <section>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Courier & Tracking</p>
-                  {order.trackingNumber && order.courierName === "postex" && (
-                    <button onClick={onSyncTracking} disabled={syncing}
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-semibold transition-colors disabled:opacity-50">
-                      <RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
-                      Sync
+                {editing === p.id ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <input type="number" min={0} value={val} onChange={e=>setVal(e.target.value)} autoFocus
+                      onKeyDown={async e => {
+                        if (e.key==="Enter") { setSaving(true); await onSave(p.id,parseInt(val)||0); setSaving(false); setEditing(null); }
+                        if (e.key==="Escape") setEditing(null);
+                      }}
+                      className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                    <button disabled={saving} onClick={async()=>{setSaving(true);await onSave(p.id,parseInt(val)||0);setSaving(false);setEditing(null);}}
+                      className="text-xs font-bold text-white bg-gray-900 px-3 py-1.5 rounded-xl disabled:opacity-50">
+                      {saving ? <Loader2 className="w-3 h-3 animate-spin"/> : "Save"}
                     </button>
-                  )}
-                </div>
-                {order.trackingNumber ? (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">Courier</span>
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full uppercase ${
-                        order.courierName === "postex" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-                      }`}>{order.courierName}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400">Tracking #</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono font-bold text-gray-900">{order.trackingNumber}</span>
-                        <button onClick={() => copy(order.trackingNumber!, "cn")} className="text-gray-300 hover:text-gray-600">
-                          {copied === "cn" ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-                    {postexSt && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-400">Courier Status</span>
-                        <span className="text-sm font-semibold text-gray-900">{postexSt.en}</span>
-                      </div>
-                    )}
-                    {trackUrl && (
-                      <a href={trackUrl} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-semibold">
-                        <ExternalLink className="w-3 h-3" />Track Order Page
-                      </a>
-                    )}
-                    {order.postexLastSync instanceof Date && (
-                      <p className="text-[10px] text-gray-400">Last synced: {fmtDate(order.postexLastSync)}</p>
-                    )}
+                    <button onClick={()=>setEditing(null)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
                   </div>
                 ) : (
-                  <button onClick={onBookCourier}
-                    className="w-full py-2.5 rounded-xl border-2 border-dashed border-gray-200 text-sm text-gray-400 hover:border-gray-400 hover:text-gray-600 font-semibold transition-colors flex items-center justify-center gap-2">
-                    <Truck className="w-4 h-4" />Book Courier
-                  </button>
-                )}
-              </section>
-
-              {/* Call Log */}
-              <div className="border-t border-gray-100" />
-              <section>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3">Call Log</p>
-                {order.callAttempts ? (
-                  <div className="bg-gray-50 rounded-xl px-4 py-3 mb-3 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Phone className="w-3.5 h-3.5 text-gray-500" />
-                      <span className="text-sm font-semibold text-gray-900">{order.callAttempts} attempt{order.callAttempts > 1 ? "s" : ""}</span>
-                      {order.lastCallAt instanceof Date && (
-                        <span className="text-xs text-gray-400 ml-auto">Last: {fmtDate(order.lastCallAt)}</span>
-                      )}
-                    </div>
-                    {order.callNote && <p className="text-xs text-gray-500 mt-1 pl-5">{order.callNote}</p>}
-                  </div>
-                ) : null}
-                <div className="flex gap-2">
-                  <input value={callNote} onChange={e => setCallNote(e.target.value)} placeholder="Call note (optional)…"
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900" />
-                  <button onClick={handleLogCall} disabled={loggingCall}
-                    className="flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-gray-800 transition-colors disabled:opacity-60">
-                    {loggingCall ? <Loader2 className="w-3 h-3 animate-spin" /> : <Phone className="w-3 h-3" />}Log
-                  </button>
-                </div>
-              </section>
-            </>
-          )}
-        </div>
-
-        <div className="px-6 pt-4 pb-6 border-t border-gray-100 space-y-2.5 flex-shrink-0">
-          {editing ? (
-            <div className="flex gap-2">
-              <button onClick={() => setEditing(false)}
-                className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
-                Cancel
-              </button>
-              <button disabled={saving}
-                onClick={async () => {
-                  setSaving(true);
-                  await onOrderUpdate(order.id, {
-                    name: form.name.trim(), phone: form.phone.trim(),
-                    address: form.address.trim(), city: form.city.trim(),
-                    quantity: parseInt(form.quantity) || 1,
-                    ...(form.note.trim() ? { note: form.note.trim() } : { note: undefined }),
-                  });
-                  setSaving(false); setEditing(false);
-                }}
-                className="flex-1 py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}Save Changes
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* WhatsApp buttons */}
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => copy(order.trackingNumber ? waDispatchMsg : waConfirmMsg, "wa")}
-                  className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[#25D366] hover:bg-[#1fba5b] text-white text-sm font-bold transition-colors">
-                  {copied === "wa" ? <><Check className="w-4 h-4" />Copied!</> : <><Copy className="w-4 h-4" />{order.trackingNumber ? "Copy Dispatch Msg" : "Copy Confirm Msg"}</>}
-                </button>
-                <a href={`https://wa.me/${waNum}`} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-[#25D366] text-[#25D366] text-sm font-bold hover:bg-green-50 transition-colors">
-                  <MessageCircle className="w-4 h-4" />Open Chat
-                </a>
-              </div>
-
-              {/* Status transitions */}
-              {trans.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  {trans.filter(t => !t.danger).length > 0 && (
-                    <div className={`grid gap-2 ${trans.filter(t => !t.danger).length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
-                      {trans.filter(t => !t.danger).map(({ next, label, primary }) => (
-                        <button key={next} disabled={updating}
-                          onClick={async () => { await onStatusUpdate(order.id, next); onClose(); }}
-                          className={`py-3 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 ${
-                            primary ? "bg-gray-900 text-white hover:bg-gray-800" : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                          }`}>
-                          {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : SC[next]?.icon}{label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {trans.filter(t => t.danger).map(({ next, label }) => (
-                    <button key={next} disabled={updating}
-                      onClick={async () => { await onStatusUpdate(order.id, next); onClose(); }}
-                      className="w-full py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2 border border-red-200 text-red-600 hover:bg-red-50">
-                      {updating ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}{label}
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {out && <span className="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-md">OUT</span>}
+                    {!out && low && <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-md">LOW</span>}
+                    <span className={`text-sm font-bold w-8 text-right ${out?"text-red-600":low?"text-amber-700":"text-gray-900"}`}>{qty}</span>
+                    <button onClick={()=>{setEditing(p.id);setVal(String(qty));}}
+                      className="p-1.5 text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                      <Edit2 className="w-3.5 h-3.5"/>
                     </button>
-                  ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AnalyticsPage ────────────────────────────────────────────────────────────
+function AnalyticsPage({ orders }: { orders: Order[] }) {
+  const totalRevenue = orders
+    .filter(o => ["confirmed","dispatched","in_transit","delivered"].includes(o.status))
+    .reduce((s,o) => s+o.price*o.quantity, 0);
+  const delivered    = orders.filter(o=>o.status==="delivered").length;
+  const returned     = orders.filter(o=>o.status==="returned").length;
+  const cancelled    = orders.filter(o=>o.status==="cancelled").length;
+  const active       = orders.filter(o=>!["cancelled","returned"].includes(o.status)).length;
+  const deliveryRate = active > 0 ? ((delivered/active)*100).toFixed(1) : "0.0";
+  const avgOrder     = active > 0 ? Math.round(totalRevenue/active) : 0;
+
+  const topProducts = useMemo(() => {
+    const map: Record<string,{name:string;count:number;revenue:number}> = {};
+    orders.filter(o=>o.status!=="cancelled").forEach(o => {
+      const k = o.productId||o.productName;
+      if (!map[k]) map[k] = {name:o.productName,count:0,revenue:0};
+      map[k].count += o.quantity; map[k].revenue += o.price*o.quantity;
+    });
+    return Object.values(map).sort((a,b)=>b.count-a.count).slice(0,5);
+  }, [orders]);
+
+  const topCities = useMemo(() => {
+    const map: Record<string,{count:number;revenue:number}> = {};
+    orders.filter(o=>o.status!=="cancelled").forEach(o => {
+      const c = o.city.trim();
+      if (!map[c]) map[c]={count:0,revenue:0};
+      map[c].count++; map[c].revenue+=o.price*o.quantity;
+    });
+    return Object.entries(map).sort((a,b)=>b[1].count-a[1].count).slice(0,5);
+  }, [orders]);
+
+  const maxP = Math.max(...topProducts.map(p=>p.count),1);
+  const maxC = Math.max(...topCities.map(c=>c[1].count),1);
+
+  return (
+    <div className="p-5 space-y-5 max-w-7xl mx-auto">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Analytics</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Business performance overview</p>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard label="Total Orders"    value={String(orders.length)} sub="All time" icon={<ShoppingCart className="w-4 h-4"/>}/>
+        <KpiCard label="Total Revenue"   value={`PKR ${(totalRevenue/1000).toFixed(1)}k`} sub="Active orders" icon={<TrendingUp className="w-4 h-4"/>}/>
+        <KpiCard label="Delivery Rate"   value={`${deliveryRate}%`} sub={`${delivered} delivered`} icon={<CheckCheck className="w-4 h-4"/>}/>
+        <KpiCard label="Avg Order Value" value={`PKR ${avgOrder.toLocaleString()}`} sub={`${cancelled} cancelled · ${returned} returned`} icon={<BarChart2 className="w-4 h-4"/>}/>
+      </div>
+      <RevenueChart orders={orders}/>
+      <div className="grid lg:grid-cols-2 gap-5">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h3 className="font-bold text-gray-900 text-sm mb-4">Top Products</h3>
+          <div className="space-y-3">
+            {topProducts.length === 0 ? <p className="text-sm text-gray-400 text-center py-4">No data</p> : topProducts.map((p,i) => (
+              <div key={i}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium truncate pr-2 max-w-[200px]">{p.name}</p>
+                  <span className="text-xs text-gray-500 flex-shrink-0">{p.count} sold</span>
                 </div>
-              )}
-            </>
-          )}
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#C4976A] rounded-full" style={{width:`${(p.count/maxP)*100}%`}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h3 className="font-bold text-gray-900 text-sm mb-4">Top Cities</h3>
+          <div className="space-y-3">
+            {topCities.length === 0 ? <p className="text-sm text-gray-400 text-center py-4">No data</p> : topCities.map(([city,data],i) => (
+              <div key={i}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm text-gray-700 font-medium">{city}</p>
+                  <span className="text-xs text-gray-500">{data.count} orders · PKR {(data.revenue/1000).toFixed(1)}k</span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-[#C4976A]/70 rounded-full" style={{width:`${(data.count/maxC)*100}%`}}/>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Manual Order Modal ────────────────────────────────────────────────────────
-
-function ManualModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ name: "", phone: "", address: "", city: "", productId: "", quantity: "1", note: "" });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const product = allVariants.find(p => p.id === form.productId);
-  const total = product ? product.price * (parseInt(form.quantity) || 1) : 0;
-  const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(prev => ({ ...prev, [f]: e.target.value }));
-  const inp = "w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white";
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!product || !form.name.trim() || !form.phone.trim() || !form.address.trim() || !form.city.trim()) {
-      setError("Please fill all required fields"); return;
-    }
-    setSubmitting(true); setError("");
-    try {
-      const data: OrderData = {
-        name: form.name.trim(), phone: form.phone.trim(),
-        address: form.address.trim(), city: form.city.trim(),
-        productId: product.id, productName: product.name,
-        price: product.price, quantity: parseInt(form.quantity) || 1,
-        ...(form.note.trim() && { note: form.note.trim() }),
-      };
-      await createOrder(data);
-      onCreated();
-      onClose();
-    } catch { setError("Failed. Please try again."); }
-    finally { setSubmitting(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[95vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
-          <div>
-            <h2 className="font-bold text-gray-900">New Manual Order</h2>
-            <p className="text-xs text-gray-400 mt-0.5">WhatsApp / phone order</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
-        </div>
-        <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Product *</label>
-            <select value={form.productId} onChange={set("productId")} className={inp}>
-              <option value="">Select product…</option>
-              {allVariants.map(p => <option key={p.id} value={p.id}>{p.name} — PKR {p.price.toLocaleString()}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Name *</label><input value={form.name} onChange={set("name")} placeholder="Ali Hassan" className={inp} /></div>
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Phone *</label><input value={form.phone} onChange={set("phone")} placeholder="03001234567" className={inp} /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">City *</label><input value={form.city} onChange={set("city")} placeholder="Karachi" className={inp} /></div>
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Quantity</label><input type="number" min="1" value={form.quantity} onChange={set("quantity")} className={inp} /></div>
-          </div>
-          <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Address *</label><textarea value={form.address} onChange={set("address")} placeholder="Full delivery address" rows={2} className={`${inp} resize-none`} /></div>
-          <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Note (optional)</label><input value={form.note} onChange={set("note")} placeholder="Special instructions…" className={inp} /></div>
-          {product && (
-            <div className="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-gray-500">Total (COD)</span>
-              <span className="text-base font-bold text-gray-900">PKR {total.toLocaleString()}</span>
-            </div>
-          )}
-          {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2.5 rounded-xl">{error}</p>}
-          <button type="submit" disabled={submitting}
-            className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            {submitting ? "Creating…" : "Create Order"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Delete Confirm ────────────────────────────────────────────────────────────
-
-function DeleteModal({ label, onConfirm, onCancel, loading }: {
-  label: string; onConfirm: () => void; onCancel: () => void; loading: boolean;
+// ─── FinancePage ──────────────────────────────────────────────────────────────
+function FinancePage({ expenses, onAdd, onDelete }: {
+  expenses: Expense[];
+  onAdd:    (data: ExpenseData) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm text-center">
-        <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle className="w-6 h-6 text-red-500" />
-        </div>
-        <h3 className="font-bold text-gray-900 mb-1.5">Delete Order?</h3>
-        <p className="text-sm text-gray-500 mb-6">{label}</p>
-        <div className="flex gap-3">
-          <button onClick={onCancel} disabled={loading}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading}
-            className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+  const [type, setType]   = useState<ExpenseType>("stock");
+  const [amount, setAmount] = useState("");
+  const [note, setNote]   = useState("");
+  const [date, setDate]   = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string|null>(null);
+  const [confirmDel, setConfirmDel] = useState<string|null>(null);
 
-// ── Main Dashboard ────────────────────────────────────────────────────────────
+  const todayStr      = new Date().toISOString().slice(0, 10);
+  const monthStart    = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
 
-export default function AdminDashboard() {
-  const router = useRouter();
-  const [authChecked, setAuthChecked]     = useState(false);
-  const [orders, setOrders]               = useState<Order[]>([]);
-  const [stock, setStockState]            = useState<StockMap>({});
-  const [loading, setLoading]             = useState(true);
-  const [updatingId, setUpdatingId]       = useState<string | null>(null);
-  const [deletingId, setDeletingId]       = useState<string | null>(null);
-  const [syncingId, setSyncingId]         = useState<string | null>(null);
-  const [statusFilter, setStatusFilter]   = useState<OrderStatus | "all">("all");
-  const [dateFilter, setDateFilter]       = useState<DateFilter>("all");
-  const [productFilter, setProductFilter] = useState<string>("all");
-  const [search, setSearch]               = useState("");
-  const [selected, setSelected]           = useState<Set<string>>(new Set());
-  const [toast, setToast]                 = useState<string | null>(null);
+  const todayExp  = expenses.filter(e => e.date === todayStr);
+  const monthExp  = expenses.filter(e => e.date >= monthStartStr);
 
-  const [detailOrder,   setDetailOrder]  = useState<Order | null>(null);
-  const [courierOrder,  setCourierOrder] = useState<Order | null>(null);
-  const [showManual,    setShowManual]   = useState(false);
-  const [deleteTarget,  setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
-
-  // Duplicate phone detection
-  const phoneDups = useMemo(() => {
-    const counts: Record<string, number> = {};
-    orders.forEach(o => { counts[o.phone] = (counts[o.phone] ?? 0) + 1; });
-    return new Set(Object.entries(counts).filter(([, c]) => c > 1).map(([p]) => p));
-  }, [orders]);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, u => { if (!u) router.replace("/admin"); else setAuthChecked(true); });
-    return () => unsub();
-  }, [router]);
-
-  const fetchOrders = useCallback(() => {
-    setLoading(true);
-    const unsub = subscribeToOrders(
-      (o) => { setOrders(o); setLoading(false); },
-      (err) => { console.error(err); setLoading(false); }
-    );
-    return unsub;
-  }, []);
-
-  useEffect(() => {
-    if (!authChecked) return;
-    const unsub = fetchOrders();
-    return () => unsub();
-  }, [authChecked, fetchOrders]);
-
-  useEffect(() => {
-    if (!authChecked) return;
-    const unsub = subscribeToStock(setStockState);
-    return () => unsub();
-  }, [authChecked]);
-
-  const stats = useMemo(() => {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    return {
-      total:          orders.length,
-      today:          orders.filter(o => o.createdAt instanceof Date && o.createdAt >= today).length,
-      pending:        orders.filter(o => o.status === "pending").length,
-      confirmed:      orders.filter(o => o.status === "confirmed").length,
-      dispatched:     orders.filter(o => o.status === "dispatched").length,
-      in_transit:     orders.filter(o => o.status === "in_transit").length,
-      delivered:      orders.filter(o => o.status === "delivered").length,
-      failed_delivery:orders.filter(o => o.status === "failed_delivery").length,
-      returned:       orders.filter(o => o.status === "returned").length,
-      cancelled:      orders.filter(o => o.status === "cancelled").length,
-      revenue:        orders.filter(o => ["confirmed","dispatched","in_transit","delivered"].includes(o.status))
-                           .reduce((s, o) => s + o.price * o.quantity, 0),
-    };
-  }, [orders]);
-
-  const lowStockProducts = useMemo(() =>
-    allVariants.filter(p => stock[p.id] !== undefined && stock[p.id] <= 5),
-  [stock]);
-
-  const filtered = useMemo(() => {
-    let list = statusFilter === "all" ? orders : orders.filter(o => o.status === statusFilter);
-    const range = dateRangeFor(dateFilter);
-    if (range) list = list.filter(o => o.createdAt instanceof Date && o.createdAt >= range.start && o.createdAt <= range.end);
-    if (productFilter !== "all") list = list.filter(o => o.productId === productFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(o =>
-        o.name.toLowerCase().includes(q) || o.phone.includes(q) ||
-        o.city.toLowerCase().includes(q) || o.productName.toLowerCase().includes(q) ||
-        (o.trackingNumber ?? "").toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [orders, statusFilter, dateFilter, productFilter, search]);
-
-  const handleStatusUpdate = async (orderId: string, next: OrderStatus) => {
-    const order = orders.find(o => o.id === orderId);
-    if (!order) return;
-    setUpdatingId(orderId);
-    try {
-      await updateOrderStatus(orderId, next);
-      const delta = stockDelta(order.status, next, order.quantity);
-      if (delta !== 0) await adjustStock(order.productId, delta);
-      setToast(`Marked as ${SC[next]?.label ?? next}`);
-      if (detailOrder?.id === orderId) setDetailOrder(prev => prev ? { ...prev, status: next } : null);
-    } catch (e) { console.error(e); }
-    finally { setUpdatingId(null); }
-  };
-
-  const handleOrderUpdate = async (orderId: string, data: Partial<OrderData>) => {
-    await updateOrder(orderId, data);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data } : o));
-    if (detailOrder?.id === orderId) setDetailOrder(prev => prev ? { ...prev, ...data } : null);
-    setToast("Order updated");
-  };
-
-  const handleCourierBooked = async (orderId: string, cn: string, courier: "postex" | "leopard") => {
-    await updateOrder(orderId, { trackingNumber: cn, courierName: courier });
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, trackingNumber: cn, courierName: courier } : o));
-    if (detailOrder?.id === orderId) setDetailOrder(prev => prev ? { ...prev, trackingNumber: cn, courierName: courier } : null);
-    setToast(`${courier === "postex" ? "PostEx" : "Leopard"} CN saved: ${cn}`);
-    setCourierOrder(null);
-  };
-
-  const handleSyncTracking = async (orderId: string) => {
-    const order = orders.find(o => o.id === orderId);
-    if (!order?.trackingNumber || order.courierName !== "postex") return;
-    setSyncingId(orderId);
-    try {
-      const result = await postexTrack(order.trackingNumber);
-      if (result.ok && result.data) {
-        const raw = result.data as Record<string, unknown>;
-        const info = (raw?.dist || raw?.data || raw) as Record<string, unknown>;
-        const history = (info?.trackingHistory || info?.history || []) as { statusCode?: string }[];
-        const latestCode = history.length > 0 ? history[history.length - 1]?.statusCode : undefined;
-        const internalStatus = latestCode ? POSTEX_TO_ORDER_STATUS[latestCode] : undefined;
-
-        const updates: Partial<OrderData> = {
-          postexStatus: latestCode || order.postexStatus,
-          postexData: JSON.stringify(info),
-          postexLastSync: new Date(),
-        };
-
-        if (internalStatus && internalStatus !== order.status) {
-          await updateOrderStatus(orderId, internalStatus);
-          const delta = stockDelta(order.status, internalStatus, order.quantity);
-          if (delta !== 0) await adjustStock(order.productId, delta);
-          updates.postexStatus = latestCode;
-        }
-
-        await updateOrder(orderId, updates);
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updates, ...(internalStatus ? { status: internalStatus } : {}) } : o));
-        if (detailOrder?.id === orderId) {
-          setDetailOrder(prev => prev ? { ...prev, ...updates, ...(internalStatus ? { status: internalStatus } : {}) } : null);
-        }
-        setToast(internalStatus && internalStatus !== order.status ? `Status updated: ${SC[internalStatus]?.label}` : "Tracking synced");
-      } else {
-        setToast("Sync failed — check CN");
-      }
-    } catch (e) { console.error(e); setToast("Sync error"); }
-    finally { setSyncingId(null); }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    const ids = deleteTarget.ids;
-    setDeletingId(ids[0]);
-    try {
-      await Promise.all(ids.map(id => deleteOrder(id)));
-      setSelected(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
-      setToast(`${ids.length} order${ids.length > 1 ? "s" : ""} deleted`);
-    } catch (e) { console.error(e); }
-    finally { setDeletingId(null); setDeleteTarget(null); }
-  };
-
-  const handleBulkStatus = async (next: OrderStatus) => {
-    const ids = Array.from(selected);
-    await Promise.all(ids.map(async id => {
-      const order = orders.find(o => o.id === id);
-      if (!order) return;
-      await updateOrderStatus(id, next);
-      const delta = stockDelta(order.status, next, order.quantity);
-      if (delta !== 0) await adjustStock(order.productId, delta);
+  function calcPL(list: Expense[]) {
+    const income  = list.filter(e => EXPENSE_IS_INCOME[e.type]).reduce((s,e) => s + e.amount, 0);
+    const costs   = list.filter(e => !EXPENSE_IS_INCOME[e.type]).reduce((s,e) => s + e.amount, 0);
+    const byType  = (Object.keys(EXPENSE_LABELS) as ExpenseType[]).map(t => ({
+      type: t, total: list.filter(e => e.type === t).reduce((s,e) => s + e.amount, 0),
     }));
-    setSelected(new Set());
-    setToast(`${ids.length} orders → ${SC[next]?.label}`);
-  };
-
-  const toggleSelect = (id: string) => setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  const allSelected  = filtered.length > 0 && selected.size === filtered.length;
-  const someSelected = selected.size > 0 && !allSelected;
-  const toggleAll    = () => allSelected ? setSelected(new Set()) : setSelected(new Set(filtered.map(o => o.id)));
-
-  const STATUS_TABS: { key: OrderStatus | "all"; label: string; count: number }[] = [
-    { key: "all",          label: "All",         count: stats.total },
-    { key: "pending",      label: "Pending",      count: stats.pending },
-    { key: "confirmed",    label: "Confirmed",    count: stats.confirmed },
-    { key: "dispatched",   label: "Dispatched",   count: stats.dispatched },
-    { key: "in_transit",   label: "In Transit",   count: stats.in_transit },
-    { key: "delivered",    label: "Delivered",    count: stats.delivered },
-    { key: "failed_delivery", label: "Failed",    count: stats.failed_delivery },
-    { key: "returned",     label: "Returned",     count: stats.returned },
-    { key: "cancelled",    label: "Cancelled",    count: stats.cancelled },
-  ];
-
-  const DATE_TABS: { key: DateFilter; label: string }[] = [
-    { key: "all", label: "All time" }, { key: "today", label: "Today" },
-    { key: "yesterday", label: "Yesterday" }, { key: "week", label: "Last 7 days" },
-    { key: "month", label: "Last 30 days" },
-  ];
-
-  if (!authChecked) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-gray-300" /></div>;
+    return { income, costs, net: income - costs, byType };
   }
 
-  return (
-    <div className="min-h-screen bg-[#F4F6F8]">
-      {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
+  const today = calcPL(todayExp);
+  const month = calcPL(monthExp);
 
-      {detailOrder && (
-        <DetailModal
-          order={detailOrder} onClose={() => setDetailOrder(null)}
-          onStatusUpdate={handleStatusUpdate} onOrderUpdate={handleOrderUpdate}
-          updating={updatingId === detailOrder.id}
-          onBookCourier={() => { setCourierOrder(detailOrder); setDetailOrder(null); }}
-          onSyncTracking={() => handleSyncTracking(detailOrder.id)}
-          syncing={syncingId === detailOrder.id}
-        />
-      )}
-      {courierOrder && (
-        <CourierModal
-          order={courierOrder}
-          onClose={() => setCourierOrder(null)}
-          onBooked={(cn, courier) => handleCourierBooked(courierOrder.id, cn, courier)}
-        />
-      )}
-      {showManual && (
-        <ManualModal onClose={() => setShowManual(false)} onCreated={() => setToast("Order created")} />
-      )}
-      {deleteTarget && (
-        <DeleteModal label={deleteTarget.label} onConfirm={handleDeleteConfirm}
-          onCancel={() => setDeleteTarget(null)} loading={deletingId !== null} />
-      )}
+  const handleAdd = async () => {
+    const amt = parseFloat(amount);
+    if (!amt || amt <= 0) return;
+    setSaving(true);
+    try {
+      await onAdd({ type, amount: amt, note: note.trim() || undefined, date });
+      setAmount(""); setNote("");
+    } finally { setSaving(false); }
+  };
 
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <ShoppingBag className="w-5 h-5 text-[#C4976A]" strokeWidth={1.5} />
-            <span className="font-bold text-gray-900 text-sm tracking-tight">WatchesByFahad</span>
-            <span className="text-gray-300 text-sm hidden sm:inline">/</span>
-            <span className="text-gray-500 text-sm hidden sm:inline">Admin</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Link href="/track" target="_blank"
-              className="hidden sm:flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
-              <MapPin className="w-3.5 h-3.5" />Track Page
-            </Link>
-            <button onClick={() => setShowManual(true)}
-              className="flex items-center gap-1.5 bg-gray-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl hover:bg-gray-800 transition-colors">
-              <Plus className="w-3.5 h-3.5" /><span className="hidden sm:inline">Add Order</span>
-            </button>
-            <button onClick={() => exportCSV(filtered)} title="Export CSV"
-              className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors">
-              <Download className="w-4 h-4" />
-            </button>
-            <button onClick={async () => { await signOut(auth); router.push("/admin"); }} title="Logout"
-              className="p-2 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-500 transition-colors">
-              <LogOut className="w-4 h-4" />
-            </button>
+  const handleDelete = async (id: string) => {
+    if (confirmDel !== id) { setConfirmDel(id); return; }
+    setDeleting(id);
+    try { await onDelete(id); } finally { setDeleting(null); setConfirmDel(null); }
+  };
+
+  function PLCard({ title, pl }: { title: string; pl: ReturnType<typeof calcPL> }) {
+    const isProfit = pl.net >= 0;
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-gray-900 text-sm">{title}</h3>
+          <div className={`flex items-center gap-1 text-sm font-extrabold ${isProfit?"text-green-600":"text-red-600"}`}>
+            {isProfit ? <ArrowUpRight className="w-4 h-4"/> : <ArrowDownRight className="w-4 h-4"/>}
+            PKR {Math.abs(pl.net).toLocaleString()}
           </div>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
-
-        {/* Urgent alerts */}
-        {stats.pending > 0 && (
-          <div className="bg-amber-500 text-white rounded-2xl px-5 py-4 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="font-bold text-sm">{stats.pending} order{stats.pending > 1 ? "s" : ""} waiting for confirmation</p>
-                <p className="text-xs text-amber-100 mt-0.5">Review and confirm to start delivery</p>
-              </div>
-            </div>
-            <button onClick={() => { setStatusFilter("pending"); setSearch(""); setSelected(new Set()); }}
-              className="flex-shrink-0 bg-white text-amber-600 text-xs font-bold px-4 py-2 rounded-xl hover:bg-amber-50 transition-colors">
-              Review
-            </button>
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Courier Received</span>
+            <span className="font-semibold text-green-700">+ PKR {pl.income.toLocaleString()}</span>
           </div>
-        )}
-
-        {stats.failed_delivery > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-2xl px-5 py-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-orange-500 flex-shrink-0" />
-            <div>
-              <p className="font-bold text-sm text-orange-700">{stats.failed_delivery} failed delivery — action needed</p>
-              <p className="text-xs text-orange-500 mt-0.5">Contact customers or request return via PostEx</p>
-            </div>
-            <button onClick={() => setStatusFilter("failed_delivery")}
-              className="ml-auto text-xs font-bold text-orange-700 bg-orange-100 px-3 py-1.5 rounded-xl hover:bg-orange-200 transition-colors">
-              View
-            </button>
+          <div className="flex justify-between text-xs text-gray-500">
+            <span>Total Costs</span>
+            <span className="font-semibold text-red-600">− PKR {pl.costs.toLocaleString()}</span>
           </div>
-        )}
-
-        {lowStockProducts.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl px-5 py-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <div>
-              <p className="font-bold text-sm text-red-700">Low stock: {lowStockProducts.map(p => `${p.name} (${stock[p.id] ?? 0})`).join(", ")}</p>
-              <p className="text-xs text-red-500 mt-0.5">Restock soon to avoid missed orders</p>
-            </div>
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
-          {[
-            { label: "Revenue",    value: `PKR ${stats.revenue >= 1000 ? (stats.revenue/1000).toFixed(0)+"k" : stats.revenue.toLocaleString()}`, sub: "Active orders", color: "text-[#C4976A]", icon: "💰" },
-            { label: "Today",      value: stats.today,          sub: "New orders",   color: "text-blue-600",  icon: "📅" },
-            { label: "Pending",    value: stats.pending,        sub: "Need confirm", color: "text-amber-600", icon: "⏳" },
-            { label: "In Transit", value: stats.dispatched + stats.in_transit, sub: "With courier", color: "text-indigo-600", icon: "🚚" },
-            { label: "Delivered",  value: stats.delivered,      sub: "Completed",    color: "text-green-600", icon: "✅" },
-            { label: "Issues",     value: stats.failed_delivery + stats.returned + stats.cancelled, sub: "Need attention", color: "text-red-500", icon: "⚠️" },
-          ].map(({ label, value, sub, color, icon }) => (
-            <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-              <span className="text-lg">{icon}</span>
-              <p className={`text-xl font-bold ${color} mt-2`}>{value}</p>
-              <p className="text-xs text-gray-400 mt-0.5 font-medium">{label}</p>
-              <p className="text-[10px] text-gray-300 mt-0.5">{sub}</p>
+          {pl.byType.filter(b => !EXPENSE_IS_INCOME[b.type] && b.total > 0).map(b => (
+            <div key={b.type} className="flex justify-between text-[11px] text-gray-400 pl-3">
+              <span>{EXPENSE_LABELS[b.type]}</span>
+              <span>PKR {b.total.toLocaleString()}</span>
             </div>
           ))}
         </div>
-
-        {/* Chart + Stock */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <RevenueChart orders={orders} />
-          <StockPanel stock={stock} onSave={async (id, val) => { await setStock(id, val); setToast("Stock updated"); }} />
+        <div className={`flex items-center justify-between pt-3 border-t border-gray-100 font-bold text-sm ${isProfit?"text-green-700":"text-red-600"}`}>
+          <span>Net {isProfit ? "Profit" : "Loss"}</span>
+          <span>PKR {Math.abs(pl.net).toLocaleString()}</span>
         </div>
+      </div>
+    );
+  }
 
-        {/* Orders */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+  return (
+    <div className="p-5 space-y-5 max-w-5xl mx-auto">
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">Finance</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Track expenses and courier payments — see your real P&L</p>
+      </div>
 
-          <div className="px-5 pt-5 pb-4 border-b border-gray-100 space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <h2 className="font-bold text-gray-900">Orders</h2>
-                <p className="text-xs text-gray-400 mt-0.5">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <select value={productFilter} onChange={e => { setProductFilter(e.target.value); setSelected(new Set()); }}
-                  className="text-xs border border-gray-200 rounded-xl px-3 py-2 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 text-gray-600 font-medium">
-                  <option value="all">All products</option>
-                  {allVariants.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-                  <input type="text" placeholder="Name, phone, CN…" value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900 bg-gray-50 focus:bg-white transition-colors w-44" />
-                  {search && (
-                    <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-600">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
+      {/* P&L cards — today + this month */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <PLCard title="Today" pl={today}/>
+        <PLCard title="This Month" pl={month}/>
+      </div>
 
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
-              {DATE_TABS.map(({ key, label }) => (
-                <button key={key} onClick={() => { setDateFilter(key); setSelected(new Set()); }}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                    dateFilter === key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}>{label}</button>
+      {/* Add entry */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <h3 className="font-bold text-gray-900 text-sm mb-4">Log Entry</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+          <div className="col-span-2">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Category</label>
+            <select value={type} onChange={e => setType(e.target.value as ExpenseType)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white text-gray-700">
+              {(Object.keys(EXPENSE_LABELS) as ExpenseType[]).map(t => (
+                <option key={t} value={t}>
+                  {EXPENSE_IS_INCOME[t] ? "↑ " : "↓ "}{EXPENSE_LABELS[t]}
+                </option>
               ))}
-            </div>
-
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
-              {STATUS_TABS.map(({ key, label, count }) => (
-                <button key={key} onClick={() => { setStatusFilter(key); setSelected(new Set()); }}
-                  className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors ${
-                    statusFilter === key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
-                  }`}>
-                  {label}
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    statusFilter === key ? "bg-white/20 text-white" : "bg-white text-gray-500"
-                  }`}>{count}</span>
-                </button>
-              ))}
-            </div>
+            </select>
           </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Amount (PKR)</label>
+            <input type="number" min={1} placeholder="5000"
+              value={amount} onChange={e => setAmount(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Date</label>
+            <input type="date" max={todayStr}
+              value={date} onChange={e => setDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <input type="text" placeholder="Note (optional)…"
+            value={note} onChange={e => setNote(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          <button disabled={saving || !amount || parseFloat(amount) <= 0} onClick={handleAdd}
+            className="text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 disabled:opacity-50 transition-colors">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Plus className="w-4 h-4"/>} Add
+          </button>
+        </div>
+      </div>
 
-          {/* Bulk bar */}
-          {selected.size > 0 && (
-            <div className="px-5 py-3 bg-gray-900 flex flex-wrap items-center gap-2.5">
-              <span className="text-white text-sm font-semibold">{selected.size} selected</span>
-              <div className="flex flex-wrap gap-2 ml-auto">
-                {[
-                  { label: "Confirm",    fn: () => handleBulkStatus("confirmed"),  cls: "bg-blue-500 hover:bg-blue-400" },
-                  { label: "Dispatched", fn: () => handleBulkStatus("dispatched"), cls: "bg-indigo-500 hover:bg-indigo-400" },
-                  { label: "Delivered",  fn: () => handleBulkStatus("delivered"),  cls: "bg-green-500 hover:bg-green-400" },
-                  { label: "Cancel",     fn: () => handleBulkStatus("cancelled"),  cls: "bg-white/10 hover:bg-white/20" },
-                ].map(({ label, fn, cls }) => (
-                  <button key={label} onClick={fn} className={`text-xs font-bold px-3 py-1.5 rounded-lg text-white transition-colors ${cls}`}>{label}</button>
-                ))}
-                <button onClick={() => setDeleteTarget({ ids: Array.from(selected), label: `Permanently delete ${selected.size} order${selected.size > 1 ? "s" : ""}?` })}
-                  className="text-xs font-bold px-3 py-1.5 rounded-lg text-white bg-red-500 hover:bg-red-400 transition-colors">
-                  Delete
-                </button>
-                <button onClick={() => setSelected(new Set())} className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+      {/* Expense log */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="font-bold text-gray-900 text-sm">Log</h3>
+          <span className="text-xs text-gray-400">{expenses.length} entries</span>
+        </div>
+        {expenses.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 text-sm flex flex-col items-center gap-2">
+            <DollarSign className="w-6 h-6 text-gray-300"/> No entries yet
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {expenses.map(e => {
+              const isIncome = EXPENSE_IS_INCOME[e.type];
+              return (
+                <div key={e.id} className="flex items-center gap-3 px-5 py-3.5">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${EXPENSE_COLORS[e.type]}`}>
+                    {EXPENSE_LABELS[e.type]}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    {e.note && <p className="text-sm text-gray-700 truncate">{e.note}</p>}
+                    <p className="text-xs text-gray-400">{e.date}</p>
+                  </div>
+                  <span className={`text-sm font-bold flex-shrink-0 ${isIncome?"text-green-700":"text-gray-900"}`}>
+                    {isIncome ? "+" : "−"} PKR {e.amount.toLocaleString()}
+                  </span>
+                  <button
+                    disabled={!!deleting}
+                    onClick={() => handleDelete(e.id)}
+                    className={`p-1.5 rounded-lg flex-shrink-0 transition-colors disabled:opacity-40 ${
+                      confirmDel === e.id
+                        ? "bg-red-500 text-white"
+                        : "text-gray-300 hover:text-red-500 hover:bg-red-50"
+                    }`}
+                    title={confirmDel === e.id ? "Tap again to confirm" : "Delete"}>
+                    {deleting === e.id ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CreateOrderPanel ─────────────────────────────────────────────────────────
+function CreateOrderPanel({ open, onClose, onToast }: {
+  open: boolean; onClose: () => void; onToast: (msg: string) => void;
+}) {
+  const [name, setName]       = useState("");
+  const [phone, setPhone]     = useState("");
+  const [city, setCity]       = useState("");
+  const [address, setAddress] = useState("");
+  const [productId, setProductId] = useState(allVariants[0]?.id ?? "");
+  const [quantity, setQuantity] = useState("1");
+  const [note, setNote]       = useState("");
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState("");
+
+  const reset = () => { setName(""); setPhone(""); setCity(""); setAddress(""); setProductId(allVariants[0]?.id??""); setQuantity("1"); setNote(""); setError(""); };
+
+  useEffect(() => { if (!open) reset(); }, [open]);
+
+  const selectedVariant = allVariants.find(v => v.id === productId);
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !phone.trim() || !city.trim() || !address.trim() || !selectedVariant) {
+      setError("Name, phone, city, address and product are required."); return;
+    }
+    setSaving(true); setError("");
+    try {
+      const qty = Math.max(1, parseInt(quantity) || 1);
+      await createOrder({
+        name: name.trim(), phone: phone.trim(), city: city.trim(),
+        address: address.trim(), note: note.trim() || undefined,
+        productId, productName: selectedVariant.name,
+        price: selectedVariant.price, quantity: qty,
+        paymentStatus: "pending",
+      });
+      onToast("Order created successfully");
+      onClose();
+    } catch(e) { setError(String(e)); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose}
+        className={`fixed inset-0 bg-black/30 z-[55] transition-opacity duration-300 ${open?"opacity-100":"opacity-0 pointer-events-none"}`}/>
+      <div className={`fixed top-0 right-0 h-full w-full sm:w-[480px] bg-white shadow-2xl z-[60] flex flex-col transition-transform duration-300 ease-out ${open?"translate-x-0":"translate-x-full"}`}>
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <h3 className="font-bold text-gray-900 text-base">Create Manual Order</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Manually add a COD order to the system</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-5 h-5"/>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {error && <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700">{error}</div>}
+          {[
+            { label:"Customer Name", val:name, set:setName, placeholder:"e.g. Ahmed Khan" },
+            { label:"Phone", val:phone, set:setPhone, placeholder:"03XX-XXXXXXX" },
+            { label:"City", val:city, set:setCity, placeholder:"e.g. Lahore" },
+          ].map(f => (
+            <div key={f.label}>
+              <label className="text-xs font-semibold text-gray-600 mb-1.5 block">{f.label}</label>
+              <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.placeholder}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+            </div>
+          ))}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Address</label>
+            <textarea value={address} onChange={e=>setAddress(e.target.value)} rows={2} placeholder="Full delivery address"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Product</label>
+            <select value={productId} onChange={e=>setProductId(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white">
+              {allVariants.map(v => <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Quantity</label>
+            <input type="number" min={1} value={quantity} onChange={e=>setQuantity(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Note (optional)</label>
+            <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Any special instructions"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+          </div>
+          {selectedVariant && (
+            <div className="bg-[#C4976A]/10 border border-[#C4976A]/30 rounded-2xl p-4">
+              <p className="text-xs font-semibold text-[#C4976A] mb-1">Order Summary</p>
+              <p className="text-sm font-bold text-gray-900">{selectedVariant.name}</p>
+              <p className="text-sm text-gray-600 mt-0.5">
+                {Math.max(1,parseInt(quantity)||1)} × PKR {selectedVariant.price.toLocaleString()} = <span className="font-bold">PKR {(Math.max(1,parseInt(quantity)||1)*selectedVariant.price).toLocaleString()}</span>
+              </p>
             </div>
           )}
+        </div>
+        <div className="p-5 border-t border-gray-100 flex-shrink-0">
+          <button disabled={saving} onClick={handleSubmit}
+            className="w-full text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Plus className="w-4 h-4"/>} Create Order
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
-          {/* Table */}
-          {loading ? (
-            <div className="flex items-center justify-center py-28"><Loader2 className="w-7 h-7 animate-spin text-gray-200" /></div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-24 text-gray-300">
-              <Package className="w-12 h-12 mx-auto mb-3 opacity-40" />
-              <p className="text-sm font-medium text-gray-400">No orders found</p>
-              {(search || dateFilter !== "all" || productFilter !== "all") && (
-                <p className="text-xs text-gray-300 mt-1">Try adjusting your filters</p>
+// ─── DetailPanel ──────────────────────────────────────────────────────────────
+function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate, onDelete, onToast }: {
+  order: Order|null; open: boolean; onClose: ()=>void; allOrders: Order[];
+  onStatusChange: (o:Order, next:OrderStatus) => Promise<void>;
+  onUpdate: (id:string, data:Partial<OrderData>) => Promise<void>;
+  onDelete: (o:Order) => Promise<void>;
+  onToast: (msg:string) => void;
+}) {
+  const { copied, copy } = useCopy();
+  const [statusLoading, setStatusLoading] = useState<OrderStatus|null>(null);
+  const [deleting, setDeleting]           = useState(false);
+  const [confirmDel, setConfirmDel]       = useState(false);
+  const [courierTab, setCourierTab]       = useState<"postex"|"leopard">("postex");
+  const [leopardCn, setLeopardCn]         = useState("");
+  const [bookLoading, setBookLoading]     = useState(false);
+  const [bookError, setBookError]         = useState("");
+  const [cancelling, setCancelling]       = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [callNote, setCallNote]           = useState("");
+  const [savingCall, setSavingCall]       = useState(false);
+  // Edit order details
+  const [editing, setEditing]             = useState(false);
+  const [editName, setEditName]           = useState("");
+  const [editPhone, setEditPhone]         = useState("");
+  const [editAddress, setEditAddress]     = useState("");
+  const [editCity, setEditCity]           = useState("");
+  const [editNote, setEditNote]           = useState("");
+  const [savingEdit, setSavingEdit]       = useState(false);
+  const [editingOrder, setEditingOrder]   = useState(false);
+  const [editPrice, setEditPrice]         = useState("");
+  const [editQty, setEditQty]             = useState("");
+  const [editProductId, setEditProductId] = useState("");
+  const [savingOrder, setSavingOrder]     = useState(false);
+
+  useEffect(() => {
+    if (order) {
+      setLeopardCn(order.trackingNumber ?? "");
+      setCallNote(order.callNote ?? "");
+      setBookError("");
+      setConfirmDel(false);
+      setConfirmCancel(false);
+      setEditing(false);
+      setEditName(order.name);
+      setEditPhone(order.phone);
+      setEditAddress(order.address ?? "");
+      setEditCity(order.city);
+      setEditNote(order.note ?? "");
+      setEditingOrder(false);
+      setEditPrice(String(order.price));
+      setEditQty(String(order.quantity));
+      setEditProductId("");
+    }
+  }, [order?.id]);
+
+  if (!order) return null;
+
+  const total    = order.price * order.quantity;
+  const urgent   = order.status === "pending" && orderAgeHours(order) > 2;
+  const dupPhone = allOrders.filter(o => o.phone===order.phone && o.id!==order.id);
+  const trans    = TRANS[order.status] ?? [];
+
+  const handleStatus = async (next: OrderStatus) => {
+    setStatusLoading(next);
+    try { await onStatusChange(order, next); onToast(`Status → ${SC[next].label}`); }
+    finally { setStatusLoading(null); }
+  };
+
+  const handlePostexBook = async () => {
+    setBookLoading(true); setBookError("");
+    try {
+      const r = await postexBook({ orderId:String(order.orderNumber ?? order.id), name:order.name, phone:order.phone,
+        address:order.address ?? "", city:order.city, productName:order.productName,
+        price:order.price, quantity:order.quantity });
+      if (r.ok && r.trackingNumber) {
+        await onUpdate(order.id, { trackingNumber:r.trackingNumber, courierName:"postex" });
+        await onStatusChange(order, "dispatched");
+        onToast(`PostEx booked — ${r.trackingNumber}`);
+      } else {
+        setBookError(r.error ?? "PostEx booking failed");
+      }
+    } catch(e) { setBookError(String(e)); }
+    finally { setBookLoading(false); }
+  };
+
+  const handleLeopardSave = async () => {
+    if (!leopardCn.trim()) return;
+    setBookLoading(true);
+    try {
+      await onUpdate(order.id, { trackingNumber:leopardCn.trim(), courierName:"leopard" });
+      await onStatusChange(order, "dispatched");
+      onToast(`Leopard CN saved — ${leopardCn.trim()}`);
+    } finally { setBookLoading(false); }
+  };
+
+  const handleCancelBooking = async () => {
+    if (!confirmCancel) { setConfirmCancel(true); return; }
+    setCancelling(true);
+    try {
+      // Clear courier fields locally and revert to confirmed. This does not
+      // cancel with PostEx — cancel/track actions were removed from the
+      // server proxy, so cancel directly via the PostEx merchant portal too.
+      await onUpdate(order.id, {
+        trackingNumber: undefined, courierName: undefined,
+        postexStatus: undefined, postexLastSync: undefined, postexData: undefined,
+      });
+      await onStatusChange(order, "confirmed");
+      setConfirmCancel(false);
+      onToast("Booking cleared locally — cancel with PostEx separately if needed");
+    } finally { setCancelling(false); }
+  };
+
+  const handleLogCall = async () => {
+    setSavingCall(true);
+    try {
+      const attempts = (order.callAttempts ?? 0) + 1;
+      await onUpdate(order.id, { callAttempts:attempts, lastCallAt:new Date(), callNote:callNote||undefined });
+      onToast(`Call logged (attempt #${attempts})`);
+    } finally { setSavingCall(false); }
+  };
+
+  const handleSaveEdit = async () => {
+    setSavingEdit(true);
+    try {
+      await onUpdate(order.id, {
+        name:    editName.trim()    || order.name,
+        phone:   editPhone.trim()   || order.phone,
+        address: editAddress.trim() || order.address,
+        city:    editCity.trim()    || order.city,
+        note:    editNote.trim()    || undefined,
+        // note: empty string clears the note (intentional)
+      });
+      setEditing(false);
+      onToast("Order details updated");
+    } finally { setSavingEdit(false); }
+  };
+
+  const handleSaveOrderEdit = async () => {
+    setSavingOrder(true);
+    try {
+      const p = parseInt(editPrice);
+      const q = parseInt(editQty);
+      const updates: Partial<OrderData> = {};
+      if (!isNaN(p) && p > 0) updates.price = p;
+      if (!isNaN(q) && q > 0) updates.quantity = q;
+      if (editProductId) {
+        const v = allVariants.find(x => x.id === editProductId);
+        if (v) {
+          updates.productId   = editProductId;
+          updates.productName = v.name;
+          if (isNaN(p) || p === order.price) updates.price = v.price;
+        }
+      }
+      await onUpdate(order.id, updates);
+      setEditingOrder(false);
+      onToast("Order details updated");
+    } finally { setSavingOrder(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    setDeleting(true);
+    try { await onDelete(order); onToast("Order deleted"); onClose(); }
+    finally { setDeleting(false); setConfirmDel(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose}
+        className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${open?"opacity-100":"opacity-0 pointer-events-none"}`}/>
+      <div className={`fixed top-0 right-0 h-full w-full sm:w-[440px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${open?"translate-x-0":"translate-x-full"}`}>
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-gray-100 flex-shrink-0">
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              {urgent && <span className="text-[10px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-md">URGENT</span>}
+              <span className="font-mono text-xs text-gray-400">Order #{order.orderNumber ?? order.id.slice(-8).toUpperCase()}</span>
+            </div>
+            <StatusBadge status={order.status}/>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-5 h-5"/>
+          </button>
+        </div>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-5 space-y-4">
+            {/* Duplicate phone */}
+            {dupPhone.length > 0 && (
+              <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-200 rounded-xl">
+                <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0"/>
+                <p className="text-xs text-orange-700 font-medium">Same phone in {dupPhone.length} other order{dupPhone.length>1?"s":""}</p>
+              </div>
+            )}
+            {/* Customer */}
+            <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Customer</h4>
+                <button onClick={()=>setEditing(e=>!e)}
+                  className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors ${editing?"bg-gray-200 text-gray-700":"text-gray-400 hover:text-gray-700 hover:bg-gray-200"}`}>
+                  <Edit2 className="w-3 h-3"/> {editing ? "Cancel" : "Edit"}
+                </button>
+              </div>
+              <div>
+                <p className="font-bold text-gray-900 text-base">{order.name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{fmtDate(order.createdAt)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-700 font-mono">{order.phone}</span>
+                <div className="flex items-center gap-1 ml-auto">
+                  <button onClick={()=>copy(order.phone,"phone")} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 hover:text-gray-600 transition-colors" title="Copy phone">
+                    {copied==="phone" ? <Check className="w-3.5 h-3.5 text-green-500"/> : <Copy className="w-3.5 h-3.5"/>}
+                  </button>
+                  <a href={`tel:${order.phone}`} className="p-1.5 hover:bg-green-100 rounded-lg text-gray-400 hover:text-green-600 transition-colors" title="Call">
+                    <Phone className="w-3.5 h-3.5"/>
+                  </a>
+                  <a href={waHref(order)} target="_blank" rel="noreferrer" className="p-1.5 hover:bg-green-100 rounded-lg text-gray-400 hover:text-green-600 transition-colors" title="WhatsApp">
+                    <MessageCircle className="w-3.5 h-3.5"/>
+                  </a>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <MapPin className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0"/>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-700">{order.address}</p>
+                  <p className="text-xs font-semibold text-gray-500 mt-0.5">{order.city}</p>
+                </div>
+                <button onClick={()=>copy(`${order.address}, ${order.city}`,"addr")} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
+                  {copied==="addr" ? <Check className="w-3 h-3 text-green-500"/> : <Copy className="w-3 h-3"/>}
+                </button>
+              </div>
+              {/* Status-based WA message copy buttons */}
+              {getWAMsgs(order).length > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-gray-200">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">WhatsApp Messages</p>
+                  {getWAMsgs(order).map(m => (
+                    <button key={m.key} onClick={()=>copy(m.text, `wa-${m.key}`)}
+                      className="w-full flex items-center gap-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-xl transition-colors">
+                      {copied===`wa-${m.key}` ? <Check className="w-3.5 h-3.5 text-green-600 flex-shrink-0"/> : <MessageCircle className="w-3.5 h-3.5 flex-shrink-0"/>}
+                      {copied===`wa-${m.key}` ? "Copied!" : `Copy: ${m.label}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Inline edit form */}
+              {editing && (
+                <div className="space-y-2 pt-1 border-t border-gray-200">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide pt-1">Edit Details</p>
+                  {[
+                    { label:"Name",    val:editName,    set:setEditName },
+                    { label:"Phone",   val:editPhone,   set:setEditPhone },
+                    { label:"City",    val:editCity,    set:setEditCity },
+                  ].map(f => (
+                    <div key={f.label}>
+                      <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
+                      <input value={f.val} onChange={e=>f.set(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                    </div>
+                  ))}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Address</label>
+                    <textarea value={editAddress} onChange={e=>setEditAddress(e.target.value)} rows={2}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Note</label>
+                    <input value={editNote} onChange={e=>setEditNote(e.target.value)}
+                      placeholder="Order note (optional)"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                  </div>
+                  <button disabled={savingEdit} onClick={handleSaveEdit}
+                    className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+                    {savingEdit ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>} Save Changes
+                  </button>
+                </div>
               )}
             </div>
-          ) : (
-            <>
-              {/* Desktop */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-5 py-3 w-10">
-                        <button onClick={toggleAll} className="flex items-center justify-center">
-                          <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                            allSelected ? "bg-gray-900 border-gray-900" : someSelected ? "bg-gray-400 border-gray-400" : "border-gray-300"
-                          }`}>
-                            {(allSelected || someSelected) && <Check className="w-2.5 h-2.5 text-white" />}
-                          </span>
-                        </button>
-                      </th>
-                      {["Customer", "Product", "Amount", "City", "Courier", "Status", "Date", "Actions"].map(h => (
-                        <th key={h} className="text-left text-[11px] font-bold text-gray-400 uppercase tracking-wider px-4 py-3 whitespace-nowrap">{h}</th>
+            {/* Order details */}
+            <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Order Details</h4>
+                <button onClick={() => setEditingOrder(e => !e)}
+                  className={`text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors ${editingOrder ? "bg-gray-200 text-gray-700" : "text-gray-400 hover:text-gray-700 hover:bg-gray-200"}`}>
+                  <Edit2 className="w-3 h-3"/> {editingOrder ? "Cancel" : "Edit"}
+                </button>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{order.productName}</p>
+                <p className="text-xs text-gray-400 mt-0.5">Qty {order.quantity} × PKR {order.price.toLocaleString()}</p>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                <span className="text-xs font-semibold text-gray-500">COD Total</span>
+                <span className="text-base font-extrabold text-gray-900">PKR {total.toLocaleString()}</span>
+              </div>
+              {order.note && (
+                <div className="flex items-start gap-2 pt-2 border-t border-gray-200">
+                  <FileText className="w-3.5 h-3.5 text-gray-400 mt-0.5 flex-shrink-0"/>
+                  <p className="text-sm text-gray-600 italic">{order.note}</p>
+                </div>
+              )}
+              {editingOrder && (
+                <div className="space-y-3 pt-2 border-t border-gray-200">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Edit Order</p>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Swap Product (optional)</label>
+                    <select value={editProductId} onChange={e => {
+                      setEditProductId(e.target.value);
+                      if (e.target.value) {
+                        const v = allVariants.find(x => x.id === e.target.value);
+                        if (v) setEditPrice(String(v.price));
+                      }
+                    }} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white">
+                      <option value="">— keep current product —</option>
+                      {allVariants.map(v => (
+                        <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {filtered.map(order => {
-                      const trans      = TRANS[order.status] ?? [];
-                      const isUpdating = updatingId === order.id;
-                      const isSelected = selected.has(order.id);
-                      const age        = orderAgeHours(order);
-                      const isDup      = phoneDups.has(order.phone);
-                      const isUrgent   = order.status === "pending" && age > 4;
-                      return (
-                        <tr key={order.id} className={`transition-colors ${isSelected ? "bg-blue-50/50" : isUrgent ? "bg-amber-50/30" : "hover:bg-gray-50/60"}`}>
-                          <td className="px-5 py-3.5">
-                            <button onClick={() => toggleSelect(order.id)} className="flex items-center justify-center">
-                              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                                isSelected ? "bg-gray-900 border-gray-900" : "border-gray-300"
-                              }`}>
-                                {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                              </span>
-                            </button>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <button onClick={() => setDetailOrder(order)} className="text-left group">
-                              <p className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors flex items-center gap-1.5 flex-wrap">
-                                {order.name}
-                                {order.note && <span className="text-[9px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">NOTE</span>}
-                                {isDup && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">DUP</span>}
-                                {isUrgent && <span className="text-[9px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full font-bold animate-pulse">URGENT</span>}
-                              </p>
-                              <p className="text-xs text-gray-400 mt-0.5">{order.phone}</p>
-                            </button>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <p className="text-gray-700 max-w-[140px] truncate text-sm">{order.productName}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">×{order.quantity}</p>
-                          </td>
-                          <td className="px-4 py-3.5">
-                            <span className="font-bold text-gray-900">PKR {(order.price * order.quantity).toLocaleString()}</span>
-                          </td>
-                          <td className="px-4 py-3.5 text-sm text-gray-500">{order.city}</td>
-                          <td className="px-4 py-3.5">
-                            {order.trackingNumber ? (
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                                  order.courierName === "postex" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
-                                }`}>{order.courierName}</span>
-                                <span className="text-xs font-mono text-gray-500 truncate max-w-[80px]">{order.trackingNumber}</span>
-                                {order.courierName === "postex" && (
-                                  <button onClick={() => handleSyncTracking(order.id)} disabled={syncingId === order.id} title="Sync tracking"
-                                    className="text-gray-300 hover:text-blue-500 transition-colors disabled:opacity-50">
-                                    <RefreshCw className={`w-3 h-3 ${syncingId === order.id ? "animate-spin" : ""}`} />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <button onClick={() => setCourierOrder(order)}
-                                className="text-[10px] font-bold text-gray-400 hover:text-gray-700 border border-dashed border-gray-200 hover:border-gray-400 px-2 py-1 rounded-lg transition-colors flex items-center gap-1">
-                                <Truck className="w-3 h-3" />Book
-                              </button>
-                            )}
-                          </td>
-                          <td className="px-4 py-3.5"><Badge status={order.status} /></td>
-                          <td className="px-4 py-3.5 text-xs text-gray-400 whitespace-nowrap">{fmtDate(order.createdAt)}</td>
-                          <td className="px-4 py-3.5">
-                            <div className="flex items-center gap-1.5">
-                              {trans.filter(t => t.primary).slice(0, 1).map(({ next, label }) => (
-                                <button key={next} onClick={() => handleStatusUpdate(order.id, next)} disabled={isUpdating}
-                                  className="text-xs font-bold px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50 whitespace-nowrap">
-                                  {isUpdating ? <Loader2 className="w-3 h-3 animate-spin inline" /> : label}
-                                </button>
-                              ))}
-                              <button onClick={() => setDetailOrder(order)}
-                                className="text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors">
-                                ···
-                              </button>
-                              <button onClick={() => setDeleteTarget({ ids: [order.id], label: `Delete order from ${order.name}?` })}
-                                className="p-1.5 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile cards */}
-              <div className="md:hidden">
-                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                  <button onClick={toggleAll} className="flex items-center gap-2 text-xs text-gray-500 font-semibold">
-                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                      allSelected ? "bg-gray-900 border-gray-900" : someSelected ? "bg-gray-400 border-gray-400" : "border-gray-300"
-                    }`}>
-                      {(allSelected || someSelected) && <Check className="w-2.5 h-2.5 text-white" />}
-                    </span>
-                    {allSelected ? "Deselect all" : "Select all"}
+                    </select>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 mb-1 block">Unit Price (PKR)</label>
+                      <input type="number" min={1} value={editPrice} onChange={e => setEditPrice(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 mb-1 block">Quantity</label>
+                      <input type="number" min={1} value={editQty} onChange={e => setEditQty(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    New total: PKR {((parseInt(editPrice) || order.price) * (parseInt(editQty) || order.quantity)).toLocaleString()}
+                  </p>
+                  <button disabled={savingOrder} onClick={handleSaveOrderEdit}
+                    className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+                    {savingOrder ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>} Save
                   </button>
-                  <span className="text-xs text-gray-400">{filtered.length} orders</span>
                 </div>
-                <div className="divide-y divide-gray-50">
-                  {filtered.map(order => {
-                    const trans      = TRANS[order.status] ?? [];
-                    const isSelected = selected.has(order.id);
-                    const isUpdating = updatingId === order.id;
-                    const isDup      = phoneDups.has(order.phone);
-                    const isUrgent   = order.status === "pending" && orderAgeHours(order) > 4;
-                    return (
-                      <div key={order.id} className={`p-4 transition-colors ${isSelected ? "bg-blue-50/40" : isUrgent ? "bg-amber-50/30" : ""}`}>
-                        <div className="flex items-start gap-3">
-                          <button onClick={() => toggleSelect(order.id)} className="mt-1 flex-shrink-0">
-                            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                              isSelected ? "bg-gray-900 border-gray-900" : "border-gray-300"
-                            }`}>
-                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                            </span>
-                          </button>
-                          <div className="flex-1 min-w-0" onClick={() => setDetailOrder(order)}>
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-gray-900">{order.name}</span>
-                                  {order.note && <span className="text-[9px] bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full font-bold">NOTE</span>}
-                                  {isDup && <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold">DUP</span>}
-                                </div>
-                                <p className="text-xs text-gray-400 mt-0.5">{order.phone} · {order.city}</p>
-                              </div>
-                              <Badge status={order.status} />
-                            </div>
-                            <p className="text-sm text-gray-600 truncate">{order.productName} ×{order.quantity}</p>
-                            <div className="flex items-center justify-between mt-1.5">
-                              <span className="font-bold text-gray-900 text-sm">PKR {(order.price * order.quantity).toLocaleString()}</span>
-                              {order.trackingNumber ? (
-                                <span className="text-xs font-mono text-gray-400">{order.trackingNumber}</span>
-                              ) : (
-                                <span className="text-xs text-gray-300">{fmtDate(order.createdAt)}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-3 ml-7">
-                          {trans.filter(t => t.primary).slice(0, 1).map(({ next, label }) => (
-                            <button key={next} onClick={() => handleStatusUpdate(order.id, next)} disabled={isUpdating}
-                              className="flex-1 py-2 rounded-xl text-xs font-bold bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50">
-                              {isUpdating ? <Loader2 className="w-3 h-3 animate-spin inline" /> : label}
-                            </button>
-                          ))}
-                          {!order.trackingNumber && (
-                            <button onClick={() => setCourierOrder(order)}
-                              className="px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1">
-                              <Truck className="w-3 h-3" />Book
-                            </button>
-                          )}
-                          <button onClick={() => setDetailOrder(order)}
-                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
-                            Details
-                          </button>
-                          <button onClick={() => setDeleteTarget({ ids: [order.id], label: `Delete order from ${order.name}?` })}
-                            className="p-2 rounded-xl border border-gray-200 text-gray-300 hover:text-red-500 hover:border-red-100 hover:bg-red-50 transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+              )}
+            </div>
+            {/* Payment collected */}
+            {order.status === "delivered" && order.paymentStatus !== "paid" && (
+              <button onClick={async () => { await onUpdate(order.id, { paymentStatus: "paid" }); onToast("Payment marked as received"); }}
+                className="w-full flex items-center justify-center gap-2 text-sm font-bold bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl transition-colors">
+                <CheckCheck className="w-4 h-4" /> Mark Payment Received
+              </button>
+            )}
+            {order.status === "delivered" && order.paymentStatus === "paid" && (
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-100 rounded-xl">
+                <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                <p className="text-sm font-semibold text-green-700">Cash payment received</p>
+              </div>
+            )}
+            {/* Status transitions */}
+            {trans.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Update Status</h4>
+                <div className="flex flex-wrap gap-2">
+                  {trans.map(t => (
+                    <button key={t.next} disabled={!!statusLoading} onClick={()=>handleStatus(t.next)}
+                      className={`text-sm font-bold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
+                        t.primary ? "bg-[#C4976A] hover:bg-[#b3865a] text-white" :
+                        t.danger  ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200" :
+                        "bg-gray-100 hover:bg-gray-200 text-gray-700"
+                      }`}>
+                      {statusLoading===t.next && <Loader2 className="w-3.5 h-3.5 animate-spin"/>}
+                      {t.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </>
-          )}
+            )}
+            {/* Courier section */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Courier</h4>
+              {order.trackingNumber ? (
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500 capitalize">{order.courierName ?? "Courier"}</p>
+                      <p className="font-mono font-bold text-gray-900 text-sm mt-0.5">{order.trackingNumber}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={()=>copy(order.trackingNumber!,"cn")} className="p-2 hover:bg-gray-200 rounded-xl text-gray-400 hover:text-gray-600" title="Copy CN">
+                        {copied==="cn" ? <Check className="w-4 h-4 text-green-500"/> : <Copy className="w-4 h-4"/>}
+                      </button>
+                    </div>
+                  </div>
+                  {(order.status==="dispatched"||order.status==="in_transit") && (
+                    <a href={waHref(order)} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2 text-sm font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2.5 rounded-xl transition-colors">
+                      <MessageCircle className="w-4 h-4"/> Open in WhatsApp
+                    </a>
+                  )}
+                  <button disabled={cancelling} onClick={handleCancelBooking}
+                    className={`w-full flex items-center justify-center gap-2 text-xs font-bold py-2 rounded-xl transition-colors disabled:opacity-50 ${
+                      confirmCancel
+                        ? "bg-red-500 hover:bg-red-600 text-white"
+                        : "bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 border border-gray-200"
+                    }`}>
+                    {cancelling
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin"/>
+                      : <XOctagon className="w-3.5 h-3.5"/>}
+                    {confirmCancel ? "Tap again — clears locally (cancel with PostEx separately)" : "Cancel Booking & Re-book"}
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <div className="flex rounded-xl bg-gray-200 p-0.5">
+                    {(["postex","leopard"] as const).map(t => (
+                      <button key={t} onClick={()=>setCourierTab(t)}
+                        className={`flex-1 text-sm font-bold py-1.5 rounded-[10px] transition-colors ${courierTab===t?"bg-white text-gray-900 shadow-sm":"text-gray-500"}`}>
+                        {t==="postex"?"PostEx":"Leopard"}
+                      </button>
+                    ))}
+                  </div>
+                  {courierTab==="postex" ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-500">Auto-book via PostEx API. Order will be marked dispatched.</p>
+                      {bookError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl">{bookError}</p>}
+                      <button disabled={bookLoading} onClick={handlePostexBook}
+                        className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+                        {bookLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Zap className="w-4 h-4"/>} Book PostEx
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-500">Enter Leopard CN manually.</p>
+                      <input value={leopardCn} onChange={e=>setLeopardCn(e.target.value)} placeholder="CN number…"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                      <button disabled={bookLoading||!leopardCn.trim()} onClick={handleLeopardSave}
+                        className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+                        {bookLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>} Save CN
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Call log */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Call Log</h4>
+                {!!order.callAttempts && (
+                  <span className="text-xs font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">
+                    {order.callAttempts} attempt{order.callAttempts>1?"s":""}
+                  </span>
+                )}
+              </div>
+              <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                {order.lastCallAt && (
+                  <p className="text-xs text-gray-400">Last called: {fmtDate(order.lastCallAt)}</p>
+                )}
+                <textarea value={callNote} onChange={e=>setCallNote(e.target.value)}
+                  placeholder="Call note (optional)…" rows={2}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+                <button disabled={savingCall} onClick={handleLogCall}
+                  className="w-full text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+                  {savingCall ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Phone className="w-3.5 h-3.5"/>} Log Call Attempt
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+        {/* Footer */}
+        <div className="p-5 border-t border-gray-100 flex-shrink-0">
+          <button disabled={deleting} onClick={handleDelete}
+            className={`w-full text-sm font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors ${
+              confirmDel ? "bg-red-500 hover:bg-red-600 text-white" : "bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600"
+            }`}>
+            {deleting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Trash2 className="w-4 h-4"/>}
+            {confirmDel ? "Tap again to confirm delete" : "Delete Order"}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
-        <p className="text-xs text-gray-400 text-center pb-2">
-          {stats.total} total · PKR {stats.revenue.toLocaleString()} revenue · {stats.dispatched + stats.in_transit} in transit
-        </p>
-      </main>
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+function Sidebar({ page, onPage, pendingCount, onSignOut, mobileOpen, onMobileClose }: {
+  page: Page; onPage: (p:Page)=>void; pendingCount: number;
+  onSignOut: ()=>void; mobileOpen: boolean; onMobileClose: ()=>void;
+}) {
+  const nav: {p:Page;label:string;icon:React.ReactNode}[] = [
+    {p:"dashboard", label:"Dashboard",  icon:<LayoutDashboard className="w-4 h-4"/>},
+    {p:"orders",    label:"Orders",     icon:<ShoppingCart className="w-4 h-4"/>},
+    {p:"logistics", label:"Logistics",  icon:<Truck className="w-4 h-4"/>},
+    {p:"inventory", label:"Inventory",  icon:<Package className="w-4 h-4"/>},
+    {p:"analytics", label:"Analytics",  icon:<BarChart2 className="w-4 h-4"/>},
+    {p:"finance",   label:"Finance",    icon:<DollarSign className="w-4 h-4"/>},
+  ];
+  const inner = (
+    <div className="flex flex-col h-full bg-[#111827]">
+      <div className="px-5 py-6 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#C4976A] flex items-center justify-center flex-shrink-0">
+            <span className="text-white font-black text-xs">Z</span>
+          </div>
+          <div>
+            <p className="text-white font-bold text-sm leading-none">ZARAAR</p>
+            <p className="text-[#6B7280] text-[10px] mt-0.5">Admin Panel</p>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto">
+        {nav.map(item => {
+          const active = page===item.p;
+          return (
+            <button key={item.p} onClick={()=>{onPage(item.p);onMobileClose();}}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                active ? "bg-[#C4976A]/15 text-[#C4976A]" : "text-[#9CA3AF] hover:text-white hover:bg-white/5"
+              }`}>
+              {item.icon}
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.p==="orders" && pendingCount>0 && (
+                <span className="text-[10px] font-black bg-[#C4976A] text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{pendingCount}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="px-3 pb-6 pt-3 flex-shrink-0 border-t border-white/5">
+        <button onClick={onSignOut}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-[#9CA3AF] hover:text-white hover:bg-white/5 transition-colors">
+          <LogOut className="w-4 h-4"/> Sign Out
+        </button>
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <aside className="hidden md:flex w-[220px] flex-shrink-0 h-screen sticky top-0">{inner}</aside>
+      <div className={`md:hidden fixed inset-0 z-50 flex transition-opacity duration-300 ${mobileOpen?"opacity-100":"opacity-0 pointer-events-none"}`}>
+        <div className="absolute inset-0 bg-black/50" onClick={onMobileClose}/>
+        <div className={`relative w-64 h-full transition-transform duration-300 ${mobileOpen?"translate-x-0":"-translate-x-full"}`}>{inner}</div>
+      </div>
+    </>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export default function AdminDashboard() {
+  const router = useRouter();
+  const [authLoading, setAuthLoading]   = useState(true);
+  const [page, setPage]                 = useState<Page>("dashboard");
+  const [orders, setOrders]             = useState<Order[]>([]);
+  const [stock, setStockState]          = useState<StockMap>({});
+  const [expenses, setExpenses]         = useState<Expense[]>([]);
+  const [selectedId, setSelectedId]     = useState<string|null>(null);
+  const [panelOpen, setPanelOpen]       = useState(false);
+  const [createOpen, setCreateOpen]     = useState(false);
+  const [toast, setToast]               = useState<string|null>(null);
+  const [mobileMenu, setMobileMenu]     = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const prevPendingRef                  = useRef<number>(0);
+  const firstLoad                       = useRef(true);
+  const statsTimer                      = useRef<ReturnType<typeof setTimeout>|null>(null);
+
+  const selectedOrder = useMemo(() => selectedId ? (orders.find(o=>o.id===selectedId)??null) : null, [orders, selectedId]);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, user => { if (!user) router.replace("/admin"); else setAuthLoading(false); });
+  }, [router]);
+
+  useEffect(() => {
+    if (authLoading) return;
+    const unsub1 = subscribeToOrders(setOrders);
+    const unsub2 = subscribeToStock(setStockState);
+    const unsub3 = subscribeToExpenses(setExpenses);
+    return () => { unsub1(); unsub2(); unsub3(); };
+  }, [authLoading]);
+
+  // Keep public stats (storefront counter) in sync — debounced 8s after any order change
+  useEffect(() => {
+    if (!orders.length) return;
+    if (statsTimer.current) clearTimeout(statsTimer.current);
+    statsTimer.current = setTimeout(() => updatePublicStats(orders), 8000);
+    return () => { if (statsTimer.current) clearTimeout(statsTimer.current); };
+  }, [orders]);
+
+  // Play sound when new pending orders arrive (skip initial load)
+  useEffect(() => {
+    const current = orders.filter(o => o.status === "pending").length;
+    if (firstLoad.current) { firstLoad.current = false; prevPendingRef.current = current; return; }
+    if (soundEnabled && current > prevPendingRef.current) playNewOrderSound();
+    prevPendingRef.current = current;
+  }, [orders, soundEnabled]);
+
+  const openOrder = useCallback((o: Order) => { setSelectedId(o.id); setPanelOpen(true); }, []);
+  const closePanel = useCallback(() => { setPanelOpen(false); setTimeout(() => setSelectedId(null), 300); }, []);
+  const showToast = useCallback((msg: string) => setToast(msg), []);
+
+  const handleStatusChange = useCallback(async (o: Order, next: OrderStatus) => {
+    const delta = stockDelta(o.status, next, o.quantity);
+    await updateOrderStatus(o.id, next);
+    if (delta !== 0) await adjustStock(o.productId, delta);
+  }, []);
+
+  const handleUpdate = useCallback(async (id: string, data: Partial<OrderData>) => {
+    await updateOrder(id, data);
+  }, []);
+
+  const handleDelete = useCallback(async (o: Order) => { await deleteOrder(o.id); }, []);
+
+  const handleBulkStatus = useCallback(async (ids: string[], status: OrderStatus) => {
+    await Promise.all(ids.map(id => {
+      const o = orders.find(x=>x.id===id);
+      return o ? handleStatusChange(o, status) : Promise.resolve();
+    }));
+    showToast(`${ids.length} order${ids.length!==1?"s":""} → ${SC[status].label}`);
+  }, [orders, handleStatusChange, showToast]);
+
+  const handleSaveStock = useCallback(async (id: string, val: number) => { await setStock(id, val); }, []);
+  const handleAddExpense = useCallback(async (data: ExpenseData) => { await addExpense(data); }, []);
+  const handleDeleteExpense = useCallback(async (id: string) => { await deleteExpense(id); }, []);
+
+  const handleBulkBook = useCallback(async (toBook: Order[]) => {
+    let booked = 0, failed = 0;
+    await Promise.all(toBook.map(async o => {
+      try {
+        const r = await postexBook({ orderId:String(o.orderNumber ?? o.id), name:o.name, phone:o.phone,
+          address:o.address ?? "", city:o.city, productName:o.productName, price:o.price, quantity:o.quantity });
+        if (r.ok && r.trackingNumber) {
+          await handleUpdate(o.id, { trackingNumber:r.trackingNumber, courierName:"postex" });
+          await handleStatusChange(o, "dispatched");
+          booked++;
+        } else { failed++; }
+      } catch { failed++; }
+    }));
+    showToast(`PostEx: ${booked} booked${failed>0?`, ${failed} failed`:""}`);
+  }, [handleUpdate, handleStatusChange, showToast]);
+
+  const handleSignOut = async () => { await signOut(auth); router.replace("/admin"); };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#111827] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-2xl bg-[#C4976A] flex items-center justify-center">
+            <span className="text-white font-black text-sm">Z</span>
+          </div>
+          <Loader2 className="w-5 h-5 animate-spin text-[#C4976A]"/>
+        </div>
+      </div>
+    );
+  }
+
+  const pendingCount = orders.filter(o=>o.status==="pending").length;
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-[#F3F4F6]">
+      <Sidebar page={page} onPage={setPage} pendingCount={pendingCount}
+        onSignOut={handleSignOut} mobileOpen={mobileMenu} onMobileClose={()=>setMobileMenu(false)}/>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Mobile header */}
+        <header className="md:hidden flex items-center justify-between px-4 py-3 bg-[#111827] flex-shrink-0">
+          <button onClick={()=>setMobileMenu(true)} className="p-2 text-white hover:bg-white/10 rounded-xl">
+            <Menu className="w-5 h-5"/>
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-xl bg-[#C4976A] flex items-center justify-center">
+              <span className="text-white font-black text-[10px]">Z</span>
+            </div>
+            <span className="text-white font-bold text-sm">Admin</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={()=>setSoundEnabled(e=>!e)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-xl" title={soundEnabled?"Mute alerts":"Unmute alerts"}>
+              {soundEnabled ? <Volume2 className="w-4 h-4"/> : <VolumeX className="w-4 h-4"/>}
+            </button>
+            <button onClick={()=>setCreateOpen(true)} className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-xl" title="Create order">
+              <Plus className="w-4 h-4"/>
+            </button>
+            {pendingCount > 0 && (
+              <span className="text-[10px] font-black bg-[#C4976A] text-white px-2 py-0.5 rounded-full">{pendingCount}</span>
+            )}
+          </div>
+        </header>
+        {/* Desktop top bar */}
+        <div className="hidden md:flex items-center justify-end gap-2 px-5 py-3 bg-white border-b border-gray-100 flex-shrink-0">
+          <button onClick={()=>setSoundEnabled(e=>!e)}
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors" title={soundEnabled?"Mute alerts":"Unmute alerts"}>
+            {soundEnabled ? <Volume2 className="w-4 h-4"/> : <VolumeX className="w-4 h-4"/>}
+          </button>
+          <button onClick={()=>setCreateOpen(true)}
+            className="flex items-center gap-2 text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-4 py-2 rounded-xl transition-colors">
+            <Plus className="w-4 h-4"/> New Order
+          </button>
+        </div>
+        <main className="flex-1 overflow-y-auto">
+          {page==="dashboard" && <DashboardPage orders={orders} onOpenOrder={openOrder}/>}
+          {page==="orders"    && <OrdersPage orders={orders} onOpenOrder={openOrder} onExport={exportCSV} onBulkStatus={handleBulkStatus}/>}
+          {page==="logistics" && <LogisticsPage orders={orders} onOpenOrder={openOrder} onBulkBook={handleBulkBook}/>}
+          {page==="inventory" && <InventoryPage stock={stock} onSave={handleSaveStock}/>}
+          {page==="analytics" && <AnalyticsPage orders={orders}/>}
+          {page==="finance"   && <FinancePage expenses={expenses} onAdd={handleAddExpense} onDelete={handleDeleteExpense}/>}
+        </main>
+      </div>
+      <CreateOrderPanel open={createOpen} onClose={()=>setCreateOpen(false)} onToast={showToast}/>
+      <DetailPanel order={selectedOrder} open={panelOpen} onClose={closePanel}
+        allOrders={orders} onStatusChange={handleStatusChange} onUpdate={handleUpdate}
+        onDelete={handleDelete} onToast={showToast}/>
+      {toast && <Toast msg={toast} onDone={()=>setToast(null)}/>}
     </div>
   );
 }

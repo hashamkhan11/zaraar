@@ -1,83 +1,116 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
 import Image from "next/image";
-import { useCart } from "@/context/CartContext";
-import { ShoppingBag } from "lucide-react";
-
-const TIKTOK_URL = "https://www.tiktok.com/@watchesbyfahad";
-
-function TikTokIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.75a4.85 4.85 0 0 1-1.01-.06z" />
-    </svg>
-  );
-}
+import Link from "next/link";
 
 export default function Navbar() {
-  const { totalItems, openCart } = useCart();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const close = () => setMenuOpen(false);
 
   return (
-    <header className="sticky top-0 z-50 bg-black border-b border-[#1C1008]">
-      <div className="max-w-6xl mx-auto px-4 h-16 relative flex items-center">
+    <>
+      {/* Always black navbar */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#010100] border-b border-white/[0.06]">
+        <div className="px-6 md:px-14 xl:px-20 h-16 md:h-20 flex items-center justify-between">
 
-        {/* Left */}
-        <div className="flex items-center gap-5">
-          <a
-            href={TIKTOK_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="TikTok"
-            className="flex items-center gap-1.5 text-[11px] font-medium tracking-widest uppercase text-[#C4976A] hover:text-white transition-colors"
-          >
-            <TikTokIcon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">TikTok</span>
-          </a>
-          <Link
-            href="/#products"
-            className="hidden sm:block text-[11px] font-medium tracking-widest uppercase text-[#C4976A] hover:text-white transition-colors"
-          >
-            Shop
-          </Link>
-        </div>
-
-        {/* Center — logo absolutely centered so it isn't column-width constrained on mobile */}
-        <div className="absolute left-1/2 -translate-x-1/2">
-          <Link href="/" aria-label="WatchesByFahad home">
+          {/* Logo */}
+          <Link href="/" className="flex items-center shrink-0">
             <Image
               src="/logo.svg"
-              alt="WatchesByFahad"
-              width={220}
-              height={42}
-              className="h-10 w-auto"
+              alt="ZARAAR"
+              width={110}
+              height={56}
+              className="h-11 md:h-14 w-auto object-contain"
               priority
             />
           </Link>
-        </div>
 
-        {/* Right */}
-        <div className="ml-auto flex items-center gap-3">
-          <span className="hidden sm:flex items-center gap-1.5 text-[10px] font-medium text-[#C4976A] border border-[#3D2010] px-3 py-1.5 rounded-full tracking-wide">
-            <span className="w-1.5 h-1.5 bg-[#C4976A] rounded-full animate-pulse" />
-            Cash on Delivery
-          </span>
-          <button
-            id="checkout-btn"
-            onClick={openCart}
-            aria-label="Open cart"
-            className="relative flex items-center justify-center w-9 h-9 rounded-full hover:bg-[#1C1008] transition-colors"
+          {/* Desktop links */}
+          <div className="hidden md:flex items-center gap-10">
+            {[
+              { label: "Collection", href: "/#collection" },
+              { label: "About",      href: "/about"       },
+            ].map(({ label, href }) => (
+              <Link
+                key={label}
+                href={href}
+                className="font-body text-[11px] font-medium tracking-[0.22em] uppercase text-white/50 hover:text-white transition-colors duration-200"
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+
+          {/* Desktop CTA */}
+          <Link
+            href="/#collection"
+            className="hidden md:inline-flex items-center px-7 py-3 bg-[#C9A84C] text-[#0A0A0A] font-body text-[9px] font-bold tracking-[0.32em] uppercase hover:bg-white transition-colors duration-200"
           >
-            <ShoppingBag className="w-5 h-5 text-white" strokeWidth={1.5} />
-            {totalItems > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#C4976A] text-black text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                {totalItems > 9 ? "9+" : totalItems}
-              </span>
-            )}
+            Order Now
+          </Link>
+
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMenuOpen(v => !v)}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            className="md:hidden flex flex-col justify-center gap-[6px] w-8 h-8 p-1"
+          >
+            <span className={`block h-px bg-white transition-all duration-200 ${menuOpen ? "rotate-45 translate-y-[7px] w-6" : "w-6"}`} />
+            <span className={`block h-px bg-white transition-all duration-200 ${menuOpen ? "opacity-0 w-6" : "w-4"}`} />
+            <span className={`block h-px bg-white transition-all duration-200 ${menuOpen ? "-rotate-45 -translate-y-[7px] w-6" : "w-6"}`} />
           </button>
         </div>
+      </nav>
 
+      {/* Mobile full-screen overlay */}
+      <div
+        className={`fixed inset-0 z-40 bg-[#010100] flex flex-col items-center justify-center gap-8 md:hidden transition-opacity duration-200 ${
+          menuOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <p className="font-body text-[8px] tracking-[0.4em] uppercase text-white/25 mb-2">
+          Browse by Series
+        </p>
+        {[
+          { label: "Tissot",          href: "/#tst" },
+          { label: "Hublot",          href: "/#hbl" },
+          { label: "Patek Philippe",  href: "/#pp"  },
+        ].map(({ label, href }) => (
+          <Link
+            key={label}
+            href={href}
+            onClick={close}
+            className="font-display font-light text-3xl tracking-[0.05em] text-[#F5F5F0]/65 hover:text-[#C9A84C]"
+          >
+            {label}
+          </Link>
+        ))}
+
+        <div className="h-px w-10 bg-[#C9A84C]/30 my-2" />
+
+        {[
+          { label: "Order", href: "/#collection" },
+          { label: "About", href: "/about"  },
+        ].map(({ label, href }) => (
+          <Link
+            key={label}
+            href={href}
+            onClick={close}
+            className="font-display font-light text-5xl tracking-[0.05em] text-[#F5F5F0] hover:text-[#C9A84C]"
+          >
+            {label}
+          </Link>
+        ))}
+
+        <Link
+          href="/#collection"
+          onClick={close}
+          className="mt-4 font-body text-[9px] font-bold tracking-[0.35em] uppercase text-[#0A0A0A] bg-[#C9A84C] px-8 py-4 hover:bg-white"
+        >
+          Order Now
+        </Link>
       </div>
-    </header>
+    </>
   );
 }

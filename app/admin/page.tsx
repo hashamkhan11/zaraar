@@ -53,7 +53,7 @@ export default function AdminLoginPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 text-gray-900 font-bold text-xl mb-1">
             <Watch className="w-5 h-5" strokeWidth={1.5} />
-            WatchesByFahad
+            ZARAAR
           </div>
           <p className="text-sm text-gray-400">Admin Panel</p>
         </div>

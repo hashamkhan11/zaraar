@@ -5,83 +5,58 @@
 @layer base {
   html { scroll-behavior: smooth; }
 
-  body {
-    @apply bg-white text-gray-900 antialiased;
-    font-feature-settings: "kern" 1, "liga" 1;
+  ::selection {
+    background: #C9A84C;
+    color: #0A0A0A;
   }
+
+  ::-webkit-scrollbar       { width: 2px; }
+  ::-webkit-scrollbar-track { background: #0A0A0A; }
+  ::-webkit-scrollbar-thumb { background: #C9A84C; }
 }
 
 @layer components {
-  /* ── Buttons ── */
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2
-           bg-[#3D1F0F] text-white text-xs font-medium
-           tracking-[0.12em] uppercase px-7 py-3.5
-           hover:bg-[#5C3020] active:scale-[0.98]
-           transition-all duration-150
-           focus:outline-none focus:ring-1 focus:ring-[#3D1F0F] focus:ring-offset-2;
+  .nav-link {
+    @apply font-body text-[11px] font-medium tracking-[0.22em] uppercase
+           text-white/45 hover:text-white transition-colors duration-200;
   }
 
-  .btn-outline {
-    @apply inline-flex items-center justify-center gap-2
-           border border-[#3D1F0F] text-[#3D1F0F] text-xs font-medium
-           tracking-[0.12em] uppercase px-7 py-3.5
-           hover:bg-[#3D1F0F] hover:text-white active:scale-[0.98]
-           transition-all duration-150;
+  .zaraar-input {
+    @apply w-full bg-transparent border-0 border-b border-white/30 pb-3 pt-1
+           text-sm text-[#F5F5F0] placeholder:text-white/40
+           focus:outline-none transition-colors duration-300;
   }
 
-  .btn-whatsapp {
-    @apply inline-flex items-center justify-center gap-2
-           bg-[#25D366] text-white text-xs font-medium
-           tracking-[0.12em] uppercase px-7 py-3.5
-           hover:bg-[#1ebe5d] active:scale-[0.98]
-           transition-all duration-150;
-  }
-
-  /* ── Inputs ── */
-  .input-field {
-    @apply w-full border border-gray-200 px-4 py-3 text-sm
-           focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900
-           transition-all bg-white placeholder:text-gray-400
-           rounded-none;
-  }
-
-  /* ── Tags / Badges — minimal, no pill shapes ── */
-  .tag {
-    @apply inline-block text-[10px] font-medium tracking-[0.15em] uppercase px-2 py-0.5 border;
-  }
-  .tag-dark  { @apply tag border-gray-900 text-gray-900 bg-white; }
-  .tag-muted { @apply tag border-gray-300 text-gray-400 bg-white; }
-  .tag-sale  { @apply tag border-gray-900 bg-gray-900 text-white; }
-
-  /* ── Typography ── */
-  .section-title {
-    @apply font-display text-3xl md:text-4xl font-semibold text-gray-900 tracking-tight leading-tight;
-  }
-  .section-eyebrow {
-    @apply text-[10px] font-medium uppercase tracking-[0.18em] text-gray-400;
-  }
-
-  /* ── Card ── */
-  .product-card {
-    @apply bg-white border border-gray-100 hover:border-gray-300 transition-all duration-300;
+  .zaraar-input-light {
+    @apply w-full bg-transparent border-0 border-b border-black/15 pb-3 pt-1
+           text-sm text-[#0A0A0A] placeholder:text-black/25
+           focus:outline-none transition-colors duration-300;
   }
 }
 
-/* Sticky bar shadow */
-.sticky-cta { box-shadow: 0 -1px 0 #e5e7eb, 0 -8px 24px rgba(0,0,0,0.06); }
+@layer utilities {
+  .urdu {
+    font-family: var(--font-urdu), 'Jameel Noori Nastaleeq', serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 2.2;
+  }
 
-/* Scrollbar */
-::-webkit-scrollbar       { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
-
-/* Drawer backdrop */
-.drawer-backdrop {
-  animation: fadeIn 0.2s ease;
+  .scrollbar-hide                  { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+.zaraar-input:focus,
+.zaraar-input-light:focus {
+  border-bottom-color: #C9A84C;
+}
+
+@keyframes zaraar-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: zaraar-marquee 38s linear infinite;
+  will-change: transform;
 }
