@@ -20,15 +20,39 @@ function getTtp(): string {
   return match ? match[1] : "";
 }
 
+// TikTok's Events API only recognizes the plural "content_ids" (array) and a
+// "contents" array for commerce events (AddToCart/Purchase) — a flat
+// singular "content_id" is silently ignored, which is what was tripping the
+// "Content ID is missing" pixel diagnostic. Derive both from the existing
+// flat fields so every call site stays unchanged.
+function normalizeCommerceProps(properties: Record<string, unknown>): Record<string, unknown> {
+  const contentId = properties.content_id;
+  if (typeof contentId !== "string" || !contentId.trim()) return properties;
+
+  return {
+    ...properties,
+    content_ids: [contentId],
+    contents: [
+      {
+        content_id: contentId,
+        content_type: properties.content_type ?? "product",
+        content_name: properties.content_name,
+        price: properties.value,
+      },
+    ],
+  };
+}
+
 export async function trackEvent(
   eventName: string,
   properties: Record<string, unknown>,
   userData?: { phone?: string; external_id?: string }
 ) {
   const eventId = crypto.randomUUID();
+  const normalizedProps = normalizeCommerceProps(properties);
 
   if (typeof window !== "undefined" && window.ttq) {
-    window.ttq.track(eventName, { ...properties, event_id: eventId });
+    window.ttq.track(eventName, { ...normalizedProps, event_id: eventId });
   }
 
   try {
@@ -38,7 +62,7 @@ export async function trackEvent(
       body: JSON.stringify({
         event: eventName,
         event_id: eventId,
-        properties,
+        properties: normalizedProps,
         user: {
           user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
           ttclid: getTtclid(),

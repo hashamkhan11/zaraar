@@ -62,8 +62,6 @@ exports.handler = async (event) => {
     });
 
     const data = await res.json();
-    console.log("TikTok response:", JSON.stringify(data));
-    console.log("Payload sent:", JSON.stringify(payload));
     return { statusCode: 200, body: JSON.stringify({ ok: true, tiktok: data }) };
   } catch (err) {
     return { statusCode: 500, body: JSON.stringify({ ok: false, error: String(err) }) };

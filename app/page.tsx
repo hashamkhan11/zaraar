@@ -5,17 +5,18 @@ import Marquee        from "@/components/Marquee";
 import ProductGrid    from "@/components/ProductGrid";
 import FAQ            from "@/components/FAQ";
 import BackToTopButton from "@/components/BackToTopButton";
+import WhatsAppFloatButton from "@/components/WhatsAppFloatButton";
 import { CATALOG, SERIES } from "@/data/products";
 
 export const metadata: Metadata = {
-  title: "Buy Premium Watches Online Pakistan | Cash on Delivery | ZARAAR",
-  description: "Buy premium watches online in Pakistan with cash on delivery. Tissot, Hublot and Patek Philippe inspired designs. Rs. 200 delivery. Ships in 2 to 3 days. 2,000+ orders delivered.",
-  alternates: { canonical: "https://zaraar.pk" },
+  title: "Buy Stylish Watches Online Pakistan | Cash on Delivery | ZARAAR",
+  description: "Buy stylish ZARAAR watches online in Pakistan with cash on delivery. Unique designs, affordable prices. Rs. 200 delivery. Ships in 2 to 3 days. 2,000+ orders delivered.",
+  alternates: { canonical: "https://zaraar.shop/" },
 };
 
 const WA = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "923000000000";
 
-const SITE = "https://zaraar.pk";
+const SITE = "https://zaraar.shop";
 
 const orgJsonLd = {
   "@context": "https://schema.org",
@@ -23,7 +24,7 @@ const orgJsonLd = {
   "name": "ZARAAR",
   "url": SITE,
   "logo": `${SITE}/logo.svg`,
-  "description": "Pakistani premium watch brand selling Tissot, Hublot and Patek Philippe inspired timepieces with cash on delivery across Pakistan.",
+  "description": "ZARAAR is a Pakistani watch brand selling its own uniquely designed Classic, Skeleton, and Prestige series timepieces with cash on delivery across Pakistan.",
   "address": { "@type": "PostalAddress", "addressLocality": "Faisalabad", "addressCountry": "PK" },
   "contactPoint": { "@type": "ContactPoint", "contactType": "customer service", "availableLanguage": ["en", "ur"] },
   "sameAs": ["https://www.tiktok.com/@zaraar.shop"],
@@ -34,7 +35,7 @@ const websiteJsonLd = {
   "@type": "WebSite",
   "name": "ZARAAR",
   "url": SITE,
-  "description": "Buy premium watches online in Pakistan with cash on delivery.",
+  "description": "Buy stylish watches online in Pakistan with cash on delivery.",
   "inLanguage": "en-PK",
 };
 
@@ -44,13 +45,13 @@ const faqJsonLd = {
   "mainEntity": [
     {
       "@type": "Question",
-      "name": "Are ZARAAR watches original Tissot, Hublot or Patek Philippe?",
-      "acceptedAnswer": { "@type": "Answer", "text": "No. ZARAAR is completely upfront about this. ZARAAR sells premium quality independently manufactured watches inspired by the designs of these iconic houses. No brand affiliation is claimed." },
+      "name": "Are ZARAAR watches original designer brand watches?",
+      "acceptedAnswer": { "@type": "Answer", "text": "No. ZARAAR is completely upfront about this. ZARAAR sells its own independently designed and manufactured timepieces under the ZARAAR brand. No third-party brand affiliation is claimed." },
     },
     {
       "@type": "Question",
       "name": "How do I buy a watch from ZARAAR?",
-      "acceptedAnswer": { "@type": "Answer", "text": "Fill the order form on zaraar.pk with your name, phone number, city, and address. We confirm your order within the hour. You pay cash only when your watch arrives at your door. No advance payment." },
+      "acceptedAnswer": { "@type": "Answer", "text": "Fill the order form on zaraar.shop with your name, phone number, city, and address. We confirm your order within the hour. You pay cash only when your watch arrives at your door. No advance payment." },
     },
     {
       "@type": "Question",
@@ -90,10 +91,10 @@ export default function ZaraarPage() {
 
         {/* Top meta */}
         <div className="flex items-center justify-between">
-          <p className="font-body text-[8.5px] tracking-[0.38em] uppercase text-white/20">
-            Premium Timepieces
+          <p className="eyebrow-dark">
+            Stylish Timepieces
           </p>
-          <p className="font-body text-[8.5px] tracking-[0.38em] uppercase text-white/20">
+          <p className="eyebrow-dark">
             Est. Pakistan
           </p>
         </div>
@@ -101,7 +102,7 @@ export default function ZaraarPage() {
         {/* Headline block */}
         <div className="py-10 md:py-0">
 
-          <h1 className="sr-only">Buy Premium Watches Online in Pakistan with Cash on Delivery | ZARAAR</h1>
+          <h1 className="sr-only">Buy Stylish Watches Online in Pakistan with Cash on Delivery | ZARAAR</h1>
 
           <div className="overflow-hidden">
             <p
@@ -133,7 +134,7 @@ export default function ZaraarPage() {
 
             {/* Desktop CTA */}
             <div className="hidden md:flex flex-col items-end gap-5 shrink-0 pb-1">
-              <p className="font-body text-[9px] tracking-[0.22em] uppercase text-white/30 text-right leading-relaxed">
+              <p className="eyebrow-dark text-right leading-relaxed">
                 Cash on Delivery<br />Rs. 200 Delivery Charge
               </p>
               <Link
@@ -159,10 +160,10 @@ export default function ZaraarPage() {
 
         {/* Bottom strip */}
         <div className="border-t border-white/[0.06] pt-6 flex items-center justify-between">
-          <p className="font-body text-[8px] tracking-[0.28em] uppercase text-white/18">
+          <p className="eyebrow-dark">
             Rs. 200 Delivery Charge
           </p>
-          <p className="font-body text-[8px] tracking-[0.28em] uppercase text-white/18">
+          <p className="eyebrow-dark">
             2 to 3 Business Days
           </p>
         </div>
@@ -180,14 +181,14 @@ export default function ZaraarPage() {
 
         {/* Collection masthead */}
         <div className="px-6 md:px-14 xl:px-20 pt-24 md:pt-32 pb-16">
-          <p className="font-body text-[8px] tracking-[0.38em] uppercase text-black/25 mb-4">
+          <p className="eyebrow-light mb-4">
             01 / The Collection
           </p>
           <h2
             className="font-display font-light text-[#0A0A0A] tracking-tight leading-[1]"
             style={{ fontSize: "clamp(2rem, 5vw, 4rem)" }}
           >
-            Three Design Series.<br />One Standard of Excellence.
+            Two Design Series.<br />One Standard of Excellence.
           </h2>
         </div>
 
@@ -203,7 +204,7 @@ export default function ZaraarPage() {
               {/* Series header */}
               <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-10 md:mb-14">
                 <div>
-                  <p className="font-body text-[8px] tracking-[0.38em] uppercase text-black/25 mb-2">
+                  <p className="eyebrow-light mb-2">
                     0{si + 1} / Design Series
                   </p>
                   <h3
@@ -234,7 +235,7 @@ export default function ZaraarPage() {
           <div className="grid md:grid-cols-[2.6fr_1fr] gap-16 md:gap-28 items-start">
 
             <div>
-              <p className="font-body text-[8px] tracking-[0.38em] uppercase text-white/22 mb-10">
+              <p className="eyebrow-dark mb-10">
                 02 / Philosophy
               </p>
               <blockquote
@@ -262,7 +263,7 @@ export default function ZaraarPage() {
                   >
                     {num}
                   </p>
-                  <p className="font-body text-[8.5px] tracking-[0.28em] uppercase text-white/30">
+                  <p className="eyebrow-dark">
                     {label}
                   </p>
                 </div>
@@ -281,7 +282,7 @@ export default function ZaraarPage() {
 
             {/* Left */}
             <div className="max-w-lg">
-              <p className="font-body text-[8px] tracking-[0.38em] uppercase text-white/22 mb-6">
+              <p className="eyebrow-dark mb-6">
                 03 / TikTok
               </p>
               <h2
@@ -316,7 +317,7 @@ export default function ZaraarPage() {
                   <p className="font-display font-light text-2xl md:text-3xl text-[#F5F5F0] leading-none">
                     {num}
                   </p>
-                  <p className="font-body text-[9px] tracking-[0.22em] uppercase text-white/30 mt-1.5">
+                  <p className="eyebrow-dark mt-1.5">
                     {label}
                   </p>
                 </div>
@@ -333,7 +334,7 @@ export default function ZaraarPage() {
         <div className="max-w-screen-xl mx-auto">
 
           <div className="mb-14">
-            <p className="font-body text-[8px] tracking-[0.38em] uppercase text-black/30 mb-4">
+            <p className="eyebrow-light mb-4">
               04 / Our Promise
             </p>
             <h2
@@ -347,7 +348,7 @@ export default function ZaraarPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 border-t border-black/[0.07]">
             {[
               {
-                title:  "Quality Guaranteed",
+                title:  "Quality Assured",
                 body:   "Not satisfied with your purchase? We accept returns and issue a full refund, no questions asked. We stand behind every watch we ship.",
                 detail: "Hassle-Free Returns",
               },
@@ -393,7 +394,7 @@ export default function ZaraarPage() {
       ═══════════════════════════════════════════════════════ */}
       <section id="community" className="bg-[#0D0D0D] py-20 md:py-28 px-6 md:px-14 xl:px-20">
         <div className="max-w-screen-xl mx-auto flex flex-col items-center text-center">
-          <p className="font-body text-[8px] tracking-[0.38em] uppercase text-white/30 mb-4">
+          <p className="eyebrow-dark mb-4">
             05 / Join The Community
           </p>
           <h2
@@ -426,8 +427,8 @@ export default function ZaraarPage() {
             <p className="font-display font-light text-[1.1rem] tracking-[0.55em] text-[#F5F5F0] uppercase mb-1.5">
               ZARAAR
             </p>
-            <p className="font-body text-[8px] tracking-[0.22em] uppercase text-white/20">
-              Premium Watches · Cash on Delivery · Pakistan
+            <p className="eyebrow-dark">
+              Stylish Watches · Cash on Delivery · Pakistan
             </p>
           </div>
 
@@ -435,6 +436,7 @@ export default function ZaraarPage() {
             {[
               { label: "Collection", href: "#collection"                                    },
               { label: "About",      href: "/about"                                         },
+              { label: "Privacy",    href: "/privacy"                                       },
               { label: "TikTok",     href: "https://www.tiktok.com/@zaraar.shop", ext: true },
               { label: "WhatsApp",   href: `https://wa.me/${WA}`,                 ext: true },
             ].map(({ label, href, ext }) => (
@@ -442,20 +444,21 @@ export default function ZaraarPage() {
                 key={label}
                 href={href}
                 {...(ext ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                className="font-body text-[9px] tracking-[0.22em] uppercase text-white/28 hover:text-[#C9A84C] transition-colors duration-200"
+                className="eyebrow-dark hover:text-[#C9A84C] transition-colors duration-200"
               >
                 {label}
               </a>
             ))}
           </div>
 
-          <p className="font-body text-[8px] tracking-[0.22em] uppercase text-white/18">
+          <p className="eyebrow-dark">
             © 2025 ZARAAR
           </p>
         </div>
       </footer>
 
       <BackToTopButton />
+      <WhatsAppFloatButton />
     </>
   );
 }
