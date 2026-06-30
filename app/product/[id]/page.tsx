@@ -512,7 +512,7 @@ export default function ProductPage({ params }: Props) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Chat on WhatsApp"
-        className="fixed right-5 bottom-24 md:bottom-7 z-50 flex items-center justify-center w-12 h-12 bg-[#0A0A0A] hover:bg-[#C9A84C] transition-colors duration-300 shadow-lg"
+        className="fixed right-5 bottom-24 md:bottom-7 z-50 flex items-center justify-center w-12 h-12 bg-[#25D366] hover:bg-[#1EBE57] transition-colors duration-300 shadow-lg"
       >
         <WhatsAppIcon className="w-5 h-5 text-white" />
       </a>
