@@ -1,19 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { ZararProduct } from "@/data/products";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { trackEvent, sha256 } from "@/lib/tiktok";
+import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { trackEvent, capiFirePurchase, sha256 } from "@/lib/tiktok";
 
 const WA = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "923000000000";
+const DELIVERY_FEE = 200;
 
 interface Props {
   product: ZararProduct | null;
   onClose: () => void;
 }
 
-type Status = "idle" | "submitting" | "success" | "error";
+type Status = "idle" | "submitting" | "error";
 type FieldKey = "name" | "phone" | "city" | "address";
 
 function normalizePhone(raw: string): string {
@@ -28,6 +30,7 @@ function isValidPhone(raw: string): boolean {
 }
 
 export default function QuickBuyModal({ product: incomingProduct, onClose }: Props) {
+  const router = useRouter();
   const [name, setName]       = useState("");
   const [phone, setPhone]     = useState("");
   const [city, setCity]       = useState("");
@@ -43,13 +46,20 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
       setStatus("idle");
       setName(""); setPhone(""); setCity(""); setAddress(""); setErrors({});
       setLocalProduct(incomingProduct);
-      trackEvent("InitiateCheckout", {
+      const viewProps = {
         content_id: incomingProduct.id,
         content_name: `${incomingProduct.name} | ${incomingProduct.seriesName}`,
         content_type: "product",
         value: incomingProduct.price,
         currency: "PKR",
-      });
+      };
+      trackEvent("AddToCart", viewProps);
+      trackEvent("InitiateCheckout", viewProps);
+      // Pre-warm Firestore + prefetch the confirmation page chunk while
+      // the user fills in their details. doc() triggers SDK init; prefetch
+      // ensures router.push("/order-confirmed") navigates instantly.
+      doc(collection(db, "orders"));
+      router.prefetch("/order-confirmed");
       const raf = requestAnimationFrame(() => setVisible(true));
       return () => cancelAnimationFrame(raf);
     } else {
@@ -88,7 +98,7 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
     window.open(`https://wa.me/${WA}?text=${msg}`, "_blank");
   };
 
-  async function handleOrder(e: React.FormEvent) {
+  function handleOrder(e: React.FormEvent) {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length > 0) {
@@ -98,58 +108,55 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
     setErrors({});
     setStatus("submitting");
     try {
-      await addDoc(collection(db, "orders"), {
-        productId:   product!.id,
-        productName: `${product!.name} | ${product!.seriesName}`,
-        price:       product!.price,
-        quantity:    1,
-        name, phone, city, address,
-        status:      "pending",
-        createdAt:   serverTimestamp(),
+      const finalPrice  = product!.price + DELIVERY_FEE;
+      const productName = `${product!.name} | ${product!.seriesName}`;
+
+      // Allocate doc ref synchronously — stable ID, zero network calls
+      const orderRef = doc(collection(db, "orders"));
+      const orderId  = orderRef.id;
+
+      // ── Navigate IMMEDIATELY — zero awaits before this line ──────────────
+      // The /order-confirmed chunk is already prefetched (done when modal opened),
+      // so this transition is instant for the user.
+      const params = new URLSearchParams({ e: orderId, p: product!.id, n: productName, v: String(finalPrice) });
+      router.push(`/order-confirmed?${params.toString()}`);
+
+      // ── Everything below runs in background, after navigation ─────────────
+      // Snapshot form values before component unmounts
+      const nameSnap = name, phoneSnap = normalizePhone(phone),
+            citySnap = city, addrSnap  = address;
+
+      // Hash phone + fire CAPI (server-side TikTok event) in background
+      sha256(phoneSnap).then(hashedPhone =>
+        capiFirePurchase(orderId, {
+          content_id:   product!.id,
+          content_name: productName,
+          content_type: "product",
+          value:        finalPrice,
+          currency:     "PKR",
+        }, { phone: hashedPhone })
+      );
+
+      // Firestore write — uses connection pre-warmed when modal opened
+      setDoc(orderRef, {
+        productId: product!.id, productName,
+        price: finalPrice, quantity: 1,
+        name: nameSnap, phone: phoneSnap, city: citySnap, address: addrSnap,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      }).catch(() => {
+        try {
+          sessionStorage.setItem("zaraar_pending_order", JSON.stringify({
+            orderId, productName, finalPrice,
+            name: nameSnap, phone: phoneSnap, city: citySnap, address: addrSnap,
+            at: new Date().toISOString(),
+          }));
+        } catch {}
       });
-      setStatus("success");
-      const hashedPhone = await sha256(phone);
-      const orderProps = {
-        content_id: product!.id,
-        content_name: `${product!.name} | ${product!.seriesName}`,
-        content_type: "product",
-        value: product!.price,
-        currency: "PKR",
-      };
-      trackEvent("PlaceAnOrder", orderProps, { phone: hashedPhone });
-      trackEvent("Purchase", orderProps, { phone: hashedPhone });
     } catch {
       waFallback();
       onClose();
     }
-  }
-
-  /* ── Success state ── */
-  if (status === "success") {
-    return (
-      <div
-        className={`fixed inset-0 z-[60] flex items-end md:items-center justify-center transition-colors duration-300 ${visible ? "bg-black/55" : "bg-black/0"}`}
-        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      >
-        <div
-          className={`bg-white w-full md:max-w-[440px] md:mx-6 px-8 py-10 text-center transition-all duration-300 ease-out ${
-            visible ? "translate-y-0 opacity-100 md:scale-100" : "translate-y-full opacity-0 md:translate-y-0 md:scale-95"
-          }`}
-        >
-          <div className="inline-flex items-center justify-center w-12 h-12 border border-[#C9A84C]/40 text-[#C9A84C] text-xl mb-5">✓</div>
-          <p className="font-display font-light text-[1.3rem] text-[#0A0A0A] mb-3">Order Placed</p>
-          <p className="font-body text-[12px] text-black/50 leading-relaxed mb-6">
-            We will call you to confirm within the hour. Pay only when your watch arrives at your door.
-          </p>
-          <button
-            onClick={onClose}
-            className="font-body text-[8.5px] tracking-[0.28em] uppercase text-black/35 border-b border-black/15 pb-0.5 hover:text-[#C9A84C] hover:border-[#C9A84C] transition-colors"
-          >
-            Continue Shopping
-          </button>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -166,7 +173,7 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
         {/* Header */}
         <div className="flex items-start justify-between px-6 pt-6 pb-5 border-b border-black/[0.07]">
           <div>
-            <p className="font-body text-[7.5px] font-bold tracking-[0.38em] uppercase text-[#8C6F2E] mb-1">
+            <p className="eyebrow-light mb-1">
               Quick Order
             </p>
             <h3 className="font-display font-light text-[1.35rem] tracking-[0.08em] text-[#0A0A0A] uppercase leading-tight">

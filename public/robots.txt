@@ -33,4 +33,4 @@ Allow: /
 User-agent: Applebot-Extended
 Allow: /
 
-Sitemap: https://zaraar.pk/sitemap.xml
+Sitemap: https://zaraar.shop/sitemap.xml

@@ -188,7 +188,7 @@ export default function ZaraarPage() {
             className="font-display font-light text-[#0A0A0A] tracking-tight leading-[1]"
             style={{ fontSize: "clamp(2rem, 5vw, 4rem)" }}
           >
-            Two Design Series.<br />One Standard of Excellence.
+            Five Design Series.<br />One Standard of Excellence.
           </h2>
         </div>
 

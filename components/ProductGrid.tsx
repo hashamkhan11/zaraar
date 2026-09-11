@@ -1,10 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import type { ZararProduct } from "@/data/products";
-import QuickBuyModal from "@/components/QuickBuyModal";
+
+// Dynamically loaded — Firebase (~460 KB) only downloads when Quick Buy is tapped,
+// not on initial page load. The modal pre-warms the Firestore connection while the
+// user fills in their details, so submit is fast.
+const QuickBuyModal = dynamic(() => import("@/components/QuickBuyModal"), { ssr: false });
 
 interface Props {
   products: ZararProduct[];
@@ -14,6 +19,14 @@ interface Props {
 export default function ProductGrid({ products, columns = 4 }: Props) {
   const [quickBuy, setQuickBuy] = useState<ZararProduct | null>(null);
 
+  useEffect(() => {
+    // Silently prefetch the QuickBuyModal chunk 3 s after mount — user is
+    // still browsing products, so by the time they tap Quick Buy the chunk
+    // (and Firebase SDK) is already cached and the modal opens instantly.
+    const t = setTimeout(() => { import("@/components/QuickBuyModal"); }, 3000);
+    return () => clearTimeout(t);
+  }, []);
+
   const gridCols = columns === 3
     ? "grid-cols-1 sm:grid-cols-3 lg:grid-cols-3"
     : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4";
@@ -22,9 +35,6 @@ export default function ProductGrid({ products, columns = 4 }: Props) {
     <>
       <div className={`grid ${gridCols} gap-5 md:gap-7`}>
         {products.map(product => {
-          const discount = Math.round(
-            ((product.originalPrice - product.price) / product.originalPrice) * 100,
-          );
           return (
             <div
               key={product.id}
@@ -34,7 +44,7 @@ export default function ProductGrid({ products, columns = 4 }: Props) {
               <Link href={`/product/${product.id}`} className="relative aspect-square overflow-hidden block">
                 <Image
                   src={product.image}
-                  alt={`ZARAAR ${product.name}`}
+                  alt={`ZARAAR ${product.seriesName} Watch — ${product.name}`}
                   fill
                   sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                   className="object-contain p-6 group-hover:scale-[1.04] group-active:scale-[1.04] transition-transform duration-700 ease-out"
@@ -50,39 +60,39 @@ export default function ProductGrid({ products, columns = 4 }: Props) {
                   </div>
                 )}
 
-                {/* Discount chip */}
-                <div className="absolute top-3 right-3 font-body text-[7.5px] font-bold tracking-[0.15em] text-[#C9A84C] bg-[#0A0A0A] px-2 py-1">
-                  −{discount}%
-                </div>
               </Link>
 
               {/* Info */}
               <div className="flex flex-col flex-1 px-4 pt-3 pb-4 border-t border-black/[0.06]">
                 {/* Title — tappable, opens product details */}
                 <Link href={`/product/${product.id}`} className="block">
-                  <h4 className="font-display font-light text-[1.1rem] tracking-[0.08em] text-[#0A0A0A] uppercase group-hover:text-[#C9A84C] group-active:text-[#C9A84C] transition-colors duration-300 leading-tight">
+                  <h3 className="font-display font-light text-[1.1rem] tracking-[0.08em] text-[#0A0A0A] uppercase group-hover:text-[#C9A84C] group-active:text-[#C9A84C] transition-colors duration-300 leading-tight">
                     {product.name}
-                  </h4>
-                  <p className="font-body text-[9px] tracking-[0.18em] uppercase text-black/50 mt-0.5 italic">
+                  </h3>
+                  <p className="eyebrow-light mt-0.5 italic">
                     {product.tagline}
                   </p>
                 </Link>
 
                 {/* Price */}
-                <div className="flex items-baseline gap-2 mt-2 flex-wrap">
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <span className="font-body text-[13px] font-semibold text-[#0A0A0A]">
                     PKR {product.price.toLocaleString()}
                   </span>
-                  <span className="font-body text-[11px] text-black/45 line-through">
-                    {product.originalPrice.toLocaleString()}
-                  </span>
+                  {product.seriesId === "ppd" && product.originalPrice > product.price && (
+                    <>
+                      <span className="font-body text-[11px] text-black/35 line-through">
+                        {product.originalPrice.toLocaleString()}
+                      </span>
+                      <span className="font-body text-[7.5px] font-bold tracking-[0.15em] uppercase text-white bg-[#C9A84C] px-1.5 py-0.5">
+                        {Math.round((1 - product.price / product.originalPrice) * 100)}% OFF
+                      </span>
+                    </>
+                  )}
                 </div>
-                <div className="mt-1.5 mb-4 space-y-0.5">
+                <div className="mt-1.5 mb-4">
                   <p className="font-body text-[8.5px] tracking-[0.1em] text-black/45">
                     Rs. 200 Delivery · Total PKR {(product.price + 200).toLocaleString()}
-                  </p>
-                  <p className="font-body text-[8px] tracking-[0.08em] text-black/35">
-                    Save PKR {(product.originalPrice - product.price).toLocaleString()} on product
                   </p>
                 </div>
 

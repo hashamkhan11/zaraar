@@ -8,7 +8,7 @@ import ProductOrderButton from "@/components/ProductOrderButton";
 import ProductViewTracker from "@/components/ProductViewTracker";
 import { CATALOG, SERIES } from "@/data/products";
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zaraar.pk";
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zaraar.shop";
 
 interface Props { params: { id: string } }
 
@@ -19,17 +19,16 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const p = CATALOG.find(x => x.id === params.id);
   if (!p) return {};
-  const discount = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
   return {
     title: `Buy ${p.name} Watch Online Pakistan | ZARAAR | PKR ${p.price.toLocaleString()}`,
-    description: `Buy ${p.name} ${p.seriesName} watch online in Pakistan. PKR ${p.price.toLocaleString()} (${discount}% off). Cash on delivery. Rs. 200 delivery charge. Ships in 2 to 3 days. 7-day return policy. ${p.description}`,
+    description: `Buy ${p.name} ${p.seriesName} watch online in Pakistan. PKR ${p.price.toLocaleString()}. Cash on delivery. Rs. 200 delivery charge. Ships in 2 to 3 days. 7-day return policy. ${p.description}`,
     keywords: [
       `${p.name.toLowerCase()} watch pakistan`,
       `buy ${p.name.toLowerCase()} watch online`,
       `${p.seriesName.toLowerCase()} pakistan`,
       "watches pakistan cash on delivery",
       "buy watch online pakistan",
-      "premium watches pakistan cod",
+      "stylish watches pakistan cod",
       "zaraar watches",
     ],
     alternates: { canonical: `${SITE}/product/${p.id}/` },
@@ -56,7 +55,7 @@ const REVIEWS: Record<string, ProductReviews> = {
     count: 289,
     items: [
       { name: "Usman Tariq", city: "Lahore",    text: "Genuine quality. The chain feels solid, the deep blue dial is clean. Exactly like the pictures. Arrived in 2 days." },
-      { name: "Hamza Iqbal", city: "Islamabad", text: "Ordered two for myself and my brother. Both look premium. COD made it totally worth it. Highly recommend." },
+      { name: "Hamza Iqbal", city: "Islamabad", text: "Ordered two for myself and my brother. Both look really stylish. COD made it totally worth it. Very happy with the purchase." },
       { name: "Bilal Sheikh", city: "Karachi",  text: "Wore it to an interview. Three people asked where I got the deep blue watch from. Speaks for itself." },
     ],
   },
@@ -75,7 +74,7 @@ const REVIEWS: Record<string, ProductReviews> = {
     items: [
       { name: "Hassan Raza",  city: "Karachi",   text: "All black look is exactly what I wanted, no shine, no flash, just clean." },
       { name: "Waqas Ahmed",  city: "Lahore",    text: "Ordered in black because I didn't want anything flashy for work. Perfect choice." },
-      { name: "Danish Iqbal", city: "Peshawar",  text: "Strap and dial both matte black, looks premium in person, not cheap at all." },
+      { name: "Danish Iqbal", city: "Peshawar",  text: "Strap and dial both matte black, looks very stylish in person, not cheap at all." },
     ],
   },
   "pp-ivory-white": {
@@ -111,7 +110,7 @@ const REVIEWS: Record<string, ProductReviews> = {
     items: [
       { name: "Shoaib Anwar", city: "Karachi",    text: "Matte black dial with the glow markers looks sharp at night too." },
       { name: "Haris Farooq", city: "Lahore",     text: "Bought it because I needed something dark and structured for client meetings. Nailed it." },
-      { name: "Yasir Latif",  city: "Rawalpindi", text: "Best looking black watch I've seen in this price range." },
+      { name: "Yasir Latif",  city: "Rawalpindi", text: "Great looking black watch I've seen in this price range." },
     ],
   },
   "tst-sapphire-blue": {
@@ -137,7 +136,7 @@ const REVIEWS: Record<string, ProductReviews> = {
     count: 173,
     items: [
       { name: "Owais Akhtar",  city: "Faisalabad", text: "Blue skeleton dial has real depth to it, looks different in different light." },
-      { name: "Tayyab Hussain", city: "Multan",    text: "Open heart movement is visible clearly, great detail for the price." },
+      { name: "Tayyab Hussain", city: "Multan",    text: "The exposed skeleton design is clearly visible, great detail for the price." },
       { name: "Salman Riaz",   city: "Karachi",    text: "Cool color, not too flashy, gets noticed without trying." },
     ],
   },
@@ -147,7 +146,7 @@ const REVIEWS: Record<string, ProductReviews> = {
     items: [
       { name: "Imtiaz Alam",   city: "Peshawar", text: "Brown dial is rare to find, glad ZARAAR has it. Goes great with leather jackets." },
       { name: "Rehan Qadir",   city: "Lahore",   text: "Warm tone looks classy, different from the usual black and blue options." },
-      { name: "Naveed Sarfraz", city: "Karachi",  text: "Movement is visible and looks premium, packaging was solid too." },
+      { name: "Naveed Sarfraz", city: "Karachi",  text: "Movement is visible and looks amazing, packaging was solid too." },
     ],
   },
   "hbl-white-skeleton": {
@@ -192,10 +191,6 @@ export default function ProductPage({ params }: Props) {
   const product = CATALOG.find(p => p.id === params.id);
   if (!product) notFound();
 
-  const discount = Math.round(
-    ((product.originalPrice - product.price) / product.originalPrice) * 100,
-  );
-  const savings = product.originalPrice - product.price;
 
   const waMsg = encodeURIComponent(
     `Order: ZARAAR\nWatch: ${product.name} | ${product.seriesName}\nTagline: ${product.tagline}\n\nName: \nMobile: \nCity: \nAddress: `,
@@ -259,24 +254,24 @@ export default function ProductPage({ params }: Props) {
           <div className="absolute top-20 md:top-24 left-6 md:left-12 flex items-center gap-2 z-10">
             <Link
               href="/"
-              className="font-body text-[9px] tracking-[0.25em] uppercase text-black/30 hover:text-[#C9A84C] transition-colors"
+              className="eyebrow-light hover:text-[#C9A84C] transition-colors"
             >
               Home
             </Link>
-            <span className="text-black/20 text-[10px]">/</span>
+            <span className="text-black/40 text-[10px]">/</span>
             <Link
               href={`/#${product.seriesId}`}
-              className="font-body text-[9px] tracking-[0.25em] uppercase text-black/30 hover:text-[#C9A84C] transition-colors"
+              className="eyebrow-light hover:text-[#C9A84C] transition-colors"
             >
               {product.seriesName}
             </Link>
-            <span className="text-black/20 text-[10px]">/</span>
-            <span className="font-body text-[9px] tracking-[0.25em] uppercase text-black/50">
+            <span className="text-black/40 text-[10px]">/</span>
+            <span className="eyebrow-light">
               {product.name}
             </span>
           </div>
 
-          <ProductImageGallery images={product.images} name={product.name} />
+          <ProductImageGallery images={product.images} name={product.name} seriesName={product.seriesName} />
         </div>
 
         {/* ── RIGHT: Sticky buy panel ── */}
@@ -284,7 +279,7 @@ export default function ProductPage({ params }: Props) {
           <div className="md:sticky md:top-24">
 
             {/* Series */}
-            <p className="font-body text-[8px] tracking-[0.4em] uppercase text-[#C9A84C] mb-3">
+            <p className="eyebrow text-[#C9A84C] mb-3">
               {product.seriesName}
             </p>
 
@@ -314,8 +309,8 @@ export default function ProductPage({ params }: Props) {
                 ))}
               </div>
               <span className="font-body text-[10px] font-semibold text-black/60">{reviews.rating.toFixed(1)}</span>
-              <span className="text-black/20 text-xs">·</span>
-              <span className="font-body text-[10px] text-black/40">{reviews.count}+ verified orders</span>
+              <span className="text-black/40 text-xs">·</span>
+              <span className="font-body text-[10px] text-black/40">{reviews.count}+ orders</span>
             </div>
 
             {/* Price block */}
@@ -327,16 +322,7 @@ export default function ProductPage({ params }: Props) {
                 >
                   PKR {product.price.toLocaleString()}
                 </span>
-                <span className="font-body text-sm text-black/45 line-through">
-                  {product.originalPrice.toLocaleString()}
-                </span>
-                <span className="font-body text-[8px] font-bold tracking-[0.15em] text-[#C9A84C] border border-[#C9A84C]/50 px-2 py-1">
-                  {discount}% OFF
-                </span>
               </div>
-              <p className="font-body text-[11px] text-black/40 mt-1.5">
-                Save PKR {savings.toLocaleString()} on product price
-              </p>
 
               {/* Delivery breakdown */}
               <div className="mt-4 pt-4 border-t border-black/[0.06] space-y-1.5">
@@ -367,14 +353,14 @@ export default function ProductPage({ params }: Props) {
               {[
                 { icon: "✓", title: "Cash on Delivery",  sub: "Pay on arrival" },
                 { icon: "✓", title: "2 to 3 Days",       sub: "Rs. 200 delivery" },
-                { icon: "✓", title: "100% Authentic",    sub: "Inspected before dispatch" },
+                { icon: "✓", title: "Quality Inspected",  sub: "Checked before dispatch" },
               ].map(({ icon, title, sub }) => (
                 <div key={title} className="text-center">
                   <p className="font-body text-[#C9A84C] text-base font-bold mb-0.5">{icon}</p>
                   <p className="font-body text-[8px] font-bold tracking-[0.1em] uppercase text-[#0A0A0A] leading-tight">
                     {title}
                   </p>
-                  <p className="font-body text-[8px] text-black/30 mt-0.5 leading-tight">
+                  <p className="font-body text-[8px] text-black/50 mt-0.5 leading-tight">
                     {sub}
                   </p>
                 </div>
@@ -383,7 +369,7 @@ export default function ProductPage({ params }: Props) {
 
             {/* Description */}
             <div className="mt-8 pt-6 border-t border-black/[0.07]">
-              <p className="font-body text-[8px] tracking-[0.28em] uppercase text-black/25 mb-3">
+              <p className="eyebrow-light mb-3">
                 Product Details
               </p>
               <ul className="space-y-2">
@@ -405,7 +391,7 @@ export default function ProductPage({ params }: Props) {
       ══════════════════════════════════════════════════════════ */}
       <section className="bg-[#0F0F0F] py-16 md:py-24 px-6 md:px-14 xl:px-20">
         <div className="max-w-screen-xl mx-auto">
-          <p className="font-body text-[8px] tracking-[0.38em] uppercase text-white/22 mb-8">
+          <p className="eyebrow-dark mb-8">
             Customer Reviews
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
@@ -426,7 +412,7 @@ export default function ProductPage({ params }: Props) {
                   <p className="font-body text-[9px] font-bold tracking-[0.15em] uppercase text-[#F5F5F0]">
                     {name}
                   </p>
-                  <p className="font-body text-[9px] text-white/30">{city} · ✓ Verified</p>
+                  <p className="font-body text-[9px] text-white/50">{city} · Verified Buyer</p>
                 </div>
               </div>
             ))}
@@ -442,7 +428,7 @@ export default function ProductPage({ params }: Props) {
           <div className="max-w-screen-xl mx-auto">
             <div className="flex items-end justify-between mb-10">
               <div>
-                <p className="font-body text-[8px] tracking-[0.38em] uppercase text-black/25 mb-2">
+                <p className="eyebrow-light mb-2">
                   More From
                 </p>
                 <h2
@@ -454,51 +440,40 @@ export default function ProductPage({ params }: Props) {
               </div>
               <Link
                 href={`/#${product.seriesId}`}
-                className="hidden md:inline font-body text-[9px] tracking-[0.25em] uppercase text-black/35 border-b border-black/15 pb-0.5 hover:text-[#C9A84C] hover:border-[#C9A84C] transition-colors"
+                className="hidden md:inline eyebrow-light border-b border-black/15 pb-0.5 hover:text-[#C9A84C] hover:border-[#C9A84C] transition-colors"
               >
                 View All →
               </Link>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 md:gap-8">
-              {related.map(rel => {
-                const relDiscount = Math.round(
-                  ((rel.originalPrice - rel.price) / rel.originalPrice) * 100,
-                );
-                return (
+              {related.map(rel => (
                   <Link key={rel.id} href={`/product/${rel.id}`} className="group block bg-white border border-black/[0.07] hover:border-[#C9A84C] active:border-[#C9A84C] transition-colors duration-300">
                     <div className="relative aspect-square overflow-hidden">
                       <Image
                         src={rel.image}
-                        alt={`ZARAAR ${rel.name}`}
+                        alt={`ZARAAR ${rel.seriesName} Watch — ${rel.name}`}
                         fill
                         sizes="(max-width: 640px) 100vw, 33vw"
                         className="object-contain p-6 group-hover:scale-[1.04] group-active:scale-[1.04] transition-transform duration-700 ease-out"
                       />
                       <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#C9A84C] translate-y-full group-hover:translate-y-0 group-active:translate-y-0 transition-transform duration-500" />
-                      <div className="absolute top-3 right-3 font-body text-[7.5px] font-bold tracking-[0.15em] text-[#C9A84C] bg-[#0A0A0A] px-2 py-1">
-                        −{relDiscount}%
-                      </div>
                     </div>
                     <div className="px-4 pt-3 pb-4 border-t border-black/[0.06]">
                       <h3 className="font-display font-light text-[1.1rem] tracking-[0.1em] text-[#0A0A0A] uppercase group-hover:text-[#C9A84C] transition-colors duration-300">
                         {rel.name}
                       </h3>
-                      <p className="font-body text-[9px] tracking-[0.15em] uppercase text-black/35 mt-0.5 italic">
+                      <p className="eyebrow-light mt-0.5 italic">
                         {rel.tagline}
                       </p>
                       <div className="flex items-baseline gap-2 mt-1.5">
                         <span className="font-body text-[12px] font-medium text-[#0A0A0A]">
                           PKR {rel.price.toLocaleString()}
                         </span>
-                        <span className="font-body text-[10px] text-black/28 line-through">
-                          {rel.originalPrice.toLocaleString()}
-                        </span>
                       </div>
                     </div>
                   </Link>
-                );
-              })}
+              ))}
             </div>
           </div>
         </section>
@@ -522,14 +497,11 @@ export default function ProductPage({ params }: Props) {
       ══════════════════════════════════════════════════════════ */}
       <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white border-t border-black/[0.08] px-4 py-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <p className="font-body text-[8px] tracking-[0.15em] uppercase text-black/40 truncate">
+          <p className="eyebrow-light truncate">
             {product.name}
           </p>
           <p className="font-body text-sm font-bold text-[#0A0A0A] leading-tight">
             PKR {product.price.toLocaleString()}
-            <span className="font-normal text-[10px] text-black/30 line-through ml-2">
-              {product.originalPrice.toLocaleString()}
-            </span>
           </p>
         </div>
         <ProductOrderButton
@@ -547,27 +519,28 @@ export default function ProductPage({ params }: Props) {
             <p className="font-display font-light text-[1.1rem] tracking-[0.55em] text-[#F5F5F0] uppercase mb-1.5">
               ZARAAR
             </p>
-            <p className="font-body text-[8px] tracking-[0.22em] uppercase text-white/20">
-              Premium Watches · Cash on Delivery · Pakistan
+            <p className="eyebrow-dark">
+              Stylish Watches · Cash on Delivery · Pakistan
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-7">
             {[
               { label: "Collection", href: "/#collection"                                    },
               { label: "About",      href: "/about"                                          },
+              { label: "Privacy",    href: "/privacy"                                        },
               { label: "TikTok",     href: "https://www.tiktok.com/@zaraar.shop", ext: true },
             ].map(({ label, href, ext }) => (
               <a
                 key={label}
                 href={href}
                 {...(ext ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-                className="font-body text-[9px] tracking-[0.22em] uppercase text-white/28 hover:text-[#C9A84C] transition-colors"
+                className="eyebrow-dark hover:text-[#C9A84C] transition-colors"
               >
                 {label}
               </a>
             ))}
           </div>
-          <p className="font-body text-[8px] tracking-[0.22em] uppercase text-white/18">
+          <p className="eyebrow-dark">
             © 2025 ZARAAR
           </p>
         </div>

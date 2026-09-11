@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { CATALOG } from "@/data/products";
 
-const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zaraar.pk";
+const BASE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://zaraar.shop";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const productUrls: MetadataRoute.Sitemap = CATALOG.map(p => ({

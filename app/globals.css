@@ -3,7 +3,16 @@
 @tailwind utilities;
 
 @layer base {
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; color-scheme: light; }
+
+  /* Eliminate the 300ms tap delay on all interactive elements on mobile.
+     -webkit-tap-highlight-color removes the grey flash; replaced by our
+     own active: states in Tailwind so feedback is still immediate. */
+  a, button, [role="button"],
+  input[type="submit"], input[type="button"], label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
 
   ::selection {
     background: #C9A84C;
@@ -16,6 +25,22 @@
 }
 
 @layer components {
+  /*
+   * Eyebrow labels (small tracked uppercase section tags) were set at 8-9px,
+   * font-light, and up to 0.4em tracking — that combination is illegible at
+   * any opacity. Fixed size/weight/tracking here; only the surface color
+   * varies by background.
+   */
+  .eyebrow {
+    @apply font-body text-[10.5px] font-semibold tracking-[0.16em] uppercase;
+  }
+  .eyebrow-light {
+    @apply eyebrow text-[#6B5A35];
+  }
+  .eyebrow-dark {
+    @apply eyebrow text-[#D9C896];
+  }
+
   .nav-link {
     @apply font-body text-[11px] font-medium tracking-[0.22em] uppercase
            text-white/45 hover:text-white transition-colors duration-200;
@@ -32,16 +57,22 @@
            text-sm text-[#0A0A0A] placeholder:text-black/25
            focus:outline-none transition-colors duration-300;
   }
+
+  /*
+   * Admin panel form controls. Always set bg + text explicitly — bare
+   * <input>/<textarea>/<select> fall back to native OS form-control
+   * rendering, which can flip to white-on-white or similarly unreadable
+   * combinations under OS/browser dark mode. Never remove these.
+   */
+  .admin-input {
+    @apply w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm
+           bg-white text-gray-900 placeholder:text-gray-400
+           focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C]/50
+           transition-colors;
+  }
 }
 
 @layer utilities {
-  .urdu {
-    font-family: var(--font-urdu), 'Jameel Noori Nastaleeq', serif;
-    direction: rtl;
-    text-align: right;
-    line-height: 2.2;
-  }
-
   .scrollbar-hide                  { -ms-overflow-style: none; scrollbar-width: none; }
   .scrollbar-hide::-webkit-scrollbar { display: none; }
 }

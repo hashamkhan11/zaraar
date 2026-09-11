@@ -5,147 +5,99 @@ import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useForm } from "react-hook-form";
-import { Watch, Loader2, Eye, EyeOff } from "lucide-react";
+import { Watch, Loader2, Eye, EyeOff, AlertCircle } from "lucide-react";
 
-interface LoginForm {
-  email: string;
-  password: string;
-}
+interface LoginForm { email: string; password: string; }
 
 export default function AdminLoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginForm>();
+  const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>();
 
   const onSubmit = async (data: LoginForm) => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       await signInWithEmailAndPassword(auth, data.email, data.password);
       router.push("/admin/dashboard");
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
-      if (
-        code === "auth/user-not-found" ||
-        code === "auth/wrong-password" ||
-        code === "auth/invalid-credential"
-      ) {
+      if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
         setError("Invalid email or password.");
       } else {
         setError("Login failed. Please try again.");
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 text-gray-900 font-bold text-xl mb-1">
-            <Watch className="w-5 h-5" strokeWidth={1.5} />
-            ZARAAR
+          <div className="inline-flex items-center gap-2.5 mb-3">
+            <div className="w-9 h-9 rounded-xl bg-[#C9A84C] flex items-center justify-center">
+              <Watch className="w-4.5 h-4.5 text-[#0A0A0A]" strokeWidth={1.75} />
+            </div>
+            <span className="font-display font-light text-[1.3rem] tracking-[0.3em] text-[#F5F5F0] uppercase">ZARAAR</span>
           </div>
-          <p className="text-sm text-gray-400">Admin Panel</p>
+          <p className="eyebrow-dark">Admin Panel</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
-          <h1 className="text-xl font-bold text-gray-900 mb-6">Sign In</h1>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-            {/* Email */}
+        <div className="bg-[#141414] border border-white/[0.08] rounded-2xl p-8 shadow-2xl">
+          <h1 className="font-display font-light text-[1.4rem] text-[#F5F5F0] mb-6">Sign In</h1>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
+              <label className="text-xs font-semibold text-white/50 mb-1.5 block">Email</label>
               <input
                 type="email"
                 placeholder="admin@example.com"
-                className={`input-field ${errors.email ? "border-red-400" : ""}`}
-                {...register("email", {
-                  required: "Email is required",
-                  pattern: {
-                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                    message: "Enter a valid email",
-                  },
-                })}
+                autoComplete="email"
+                className={`zaraar-input ${errors.email ? "border-red-400" : ""}`}
+                {...register("email", { required: "Email is required", pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: "Enter a valid email" } })}
               />
-              {errors.email && (
-                <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>
-              )}
+              {errors.email && <p className="text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
             </div>
-
-            {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
+              <label className="text-xs font-semibold text-white/50 mb-1.5 block">Password</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className={`input-field pr-10 ${errors.password ? "border-red-400" : ""}`}
-                  {...register("password", {
-                    required: "Password is required",
-                  })}
+                  autoComplete="current-password"
+                  className={`zaraar-input pr-9 ${errors.password ? "border-red-400" : ""}`}
+                  {...register("password", { required: "Password is required" })}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-0 bottom-3 text-white/40 hover:text-[#C9A84C] transition-colors"
+                  tabIndex={-1}
                 >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              {errors.password && (
-                <p className="text-red-500 text-xs mt-1">
-                  {errors.password.message}
-                </p>
-              )}
+              {errors.password && <p className="text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
             </div>
 
-            {/* Error */}
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/25 text-red-400 text-sm rounded-xl px-4 py-3">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 {error}
               </div>
             )}
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-primary py-3.5 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full bg-[#C9A84C] hover:bg-[#B8954A] text-[#0A0A0A] font-body text-[11px] font-bold tracking-[0.18em] uppercase py-3.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors duration-200"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Signing in…
-                </>
-              ) : (
-                "Sign In"
-              )}
+              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing In…</> : "Sign In"}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Authorized personnel only.
-        </p>
+        <p className="text-center eyebrow-dark mt-7">Authorized Personnel Only</p>
       </div>
     </div>
   );

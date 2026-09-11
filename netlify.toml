@@ -5,6 +5,9 @@
 [functions]
   directory = "netlify/functions"
 
+[functions."postex-sync"]
+  schedule = "*/30 * * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]

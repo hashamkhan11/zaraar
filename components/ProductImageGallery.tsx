@@ -6,6 +6,7 @@ import Image from "next/image";
 interface Props {
   images: string[];
   name: string;
+  seriesName: string;
 }
 
 const MAX_SCALE = 3;
@@ -14,7 +15,7 @@ function dist(a: React.Touch, b: React.Touch) {
   return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
 }
 
-export default function ProductImageGallery({ images, name }: Props) {
+export default function ProductImageGallery({ images, name, seriesName }: Props) {
   const loop = images.length > 1;
   // Clone last image before the first, and first image after the last,
   // so swiping past either end continues seamlessly into the other.
@@ -158,7 +159,7 @@ export default function ProductImageGallery({ images, name }: Props) {
               >
                 <Image
                   src={img}
-                  alt={`ZARAAR ${name}`}
+                  alt={`ZARAAR ${seriesName} Watch — ${name}`}
                   fill
                   priority={loop ? i === 1 : i === 0}
                   loading={(loop ? i === 1 : i === 0) ? undefined : "eager"}

@@ -5,4 +5,4 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Build failed." -ForegroundColor Red; exit
 Write-Host "`nDeploying to Netlify (functions + static)..." -ForegroundColor Cyan
 netlify deploy --prod --dir=out --functions=netlify/functions
 
-Write-Host "`nDone! Check watchesbyfahad.com" -ForegroundColor Green
+Write-Host "`nDone! Check zaraar.shop" -ForegroundColor Green

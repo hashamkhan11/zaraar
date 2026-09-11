@@ -74,3 +74,43 @@ export async function trackEvent(
     }).catch(() => {});
   } catch {}
 }
+
+// Fire only the CAPI (server-side via Netlify) — call before a page redirect so
+// the event is delivered even if the user closes the tab before the thank-you page loads.
+export function capiFirePurchase(
+  eventId: string,
+  properties: Record<string, unknown>,
+  userData?: { phone?: string },
+) {
+  const normalizedProps = normalizeCommerceProps(properties);
+  fetch("/.netlify/functions/tiktok-events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      event: "Purchase",
+      event_id: eventId,
+      properties: normalizedProps,
+      user: {
+        user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        ttclid: getTtclid(),
+        ttp: getTtp(),
+        ...userData,
+      },
+      url: typeof window !== "undefined" ? window.location.href : "",
+    }),
+  }).catch(() => {});
+}
+
+// Fire only the browser pixel — call on the thank-you page, paired with
+// capiFirePurchase from the order form, sharing the same eventId for deduplication.
+export function pixelFirePurchase(
+  eventId: string,
+  properties: Record<string, unknown>,
+) {
+  if (typeof window !== "undefined" && window.ttq) {
+    window.ttq.track("Purchase", {
+      ...normalizeCommerceProps(properties),
+      event_id: eventId,
+    });
+  }
+}

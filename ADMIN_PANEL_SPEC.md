@@ -1,4 +1,4 @@
-# WatchesByFahad Admin Panel — Complete Specification
+# Zaraar Admin Panel — Complete Specification
 **Date:** 2026-05-09  
 **Owner:** Fahad  
 **Status:** Requirements Locked ✅

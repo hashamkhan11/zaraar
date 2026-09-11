@@ -31,6 +31,7 @@ export default function Navbar() {
             {[
               { label: "Collection", href: "/#collection" },
               { label: "About",      href: "/about"       },
+              { label: "Track Order", href: "/track"      },
             ].map(({ label, href }) => (
               <Link
                 key={label}
@@ -69,13 +70,15 @@ export default function Navbar() {
           menuOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
       >
-        <p className="font-body text-[8px] tracking-[0.4em] uppercase text-white/25 mb-2">
+        <p className="eyebrow-dark mb-2">
           Browse by Series
         </p>
         {[
-          { label: "Tissot",          href: "/#tst" },
-          { label: "Hublot",          href: "/#hbl" },
-          { label: "Patek Philippe",  href: "/#pp"  },
+          { label: "Explorer",      href: "/#exp" },
+          { label: "Classic",       href: "/#pp"  },
+          { label: "Prestige",      href: "/#ppd" },
+          { label: "Urban",         href: "/#tst" },
+          { label: "Skeleton",      href: "/#hbl" },
         ].map(({ label, href }) => (
           <Link
             key={label}
@@ -102,6 +105,14 @@ export default function Navbar() {
             {label}
           </Link>
         ))}
+
+        <Link
+          href="/track"
+          onClick={close}
+          className="font-body text-[10px] font-semibold tracking-[0.25em] uppercase text-[#F5F5F0]/55 hover:text-[#C9A84C]"
+        >
+          Track Order
+        </Link>
 
         <Link
           href="/#collection"

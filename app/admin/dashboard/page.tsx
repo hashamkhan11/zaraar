@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { deleteField } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import {
   subscribeToOrders, updateOrderStatus, updateOrder, deleteOrder, createOrder,
-  updatePublicStats, Order, OrderStatus, OrderData,
+  updatePublicStats, Order, OrderStatus, OrderData, OrderItem,
+  getOrderItems, getOrderTotal, getOrderQuantity, getOrderProductLabel,
 } from "@/lib/orders";
 import { subscribeToStock, setStock, adjustStock, StockMap } from "@/lib/stock";
 import { CATALOG } from "@/data/products";
@@ -15,11 +17,11 @@ import {
   Expense, ExpenseData, ExpenseType,
   EXPENSE_LABELS, EXPENSE_IS_INCOME, EXPENSE_COLORS,
 } from "@/lib/finance";
-import { postexBook } from "@/lib/postex";
+import { postexBook, postexCancel } from "@/lib/postex";
 import {
   LayoutDashboard, ShoppingCart, Truck, Package, BarChart2,
   LogOut, Loader2, CheckCheck, Clock, Trash2,
-  AlertTriangle, Copy, Check, MessageCircle, X, Search,
+  Copy, Check, MessageCircle, X, Search,
   Download, Edit2, AlertCircle, RefreshCw, Phone, Zap,
   MapPin, FileText, TrendingUp, Menu, ChevronRight, Bell,
   Plus, Volume2, VolumeX, XOctagon, CheckCircle2,
@@ -33,11 +35,30 @@ const allVariants = CATALOG.map(p => ({
   price: p.price,
 }));
 
+// Flat COD delivery surcharge — baked into the stored `price` at order-creation
+// time only (CreateOrderPanel / QuickBuyModal). Never added again at display
+// time: `price` is always the final, already-inclusive COD amount.
+const DELIVERY_FEE = 200;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Page = "dashboard" | "orders" | "logistics" | "inventory" | "analytics" | "finance";
 type DateFilter = "all" | "today" | "yesterday" | "week" | "month" | "custom";
 
 // ─── Status config ────────────────────────────────────────────────────────────
+const POSTEX_STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  "Delivered":                    { bg: "bg-green-100",  text: "text-green-700"  },
+  "Out For Delivery":             { bg: "bg-sky-100",    text: "text-sky-700"    },
+  "Booked":                       { bg: "bg-indigo-100", text: "text-indigo-700" },
+  "Picked By PostEx":             { bg: "bg-indigo-100", text: "text-indigo-700" },
+  "PostEx WareHouse":             { bg: "bg-indigo-100", text: "text-indigo-700" },
+  "En-Route to PostEx warehouse": { bg: "bg-indigo-100", text: "text-indigo-700" },
+  "Attempted":                    { bg: "bg-orange-100", text: "text-orange-700" },
+  "Delivery Under Review":        { bg: "bg-orange-100", text: "text-orange-700" },
+  "Out For Return":               { bg: "bg-rose-100",   text: "text-rose-700"   },
+  "Returned":                     { bg: "bg-purple-100", text: "text-purple-700" },
+  "Expired":                      { bg: "bg-red-100",    text: "text-red-700"    },
+};
+
 const SC: Record<OrderStatus, { label: string; bg: string; text: string; border: string; dot: string }> = {
   pending:           { label: "Pending",            bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-400"  },
   confirmed:         { label: "Confirmed",          bg: "bg-blue-50",    text: "text-blue-700",   border: "border-blue-200",   dot: "bg-blue-500"   },
@@ -109,14 +130,20 @@ function dateRangeFor(f: DateFilter): { start: Date; end: Date } | null {
 
 function exportCSV(orders: Order[]) {
   const header = ["ID","Name","Phone","City","Address","Product","Qty","Price","Total","Status","Courier","CN","Date","Note"];
-  const rows = orders.map(o => [
-    o.id, o.name, o.phone, o.city,
-    o.address ? `"${o.address.replace(/"/g,'""')}"` : "",
-    o.productName, o.quantity, o.price, o.price * o.quantity,
-    o.status, o.courierName ?? "", o.trackingNumber ?? "",
-    o.createdAt instanceof Date ? o.createdAt.toISOString() : "",
-    o.note ? `"${o.note.replace(/"/g,'""')}"` : "",
-  ]);
+  const rows = orders.map(o => {
+    const items = getOrderItems(o);
+    const productCell = items.length > 1
+      ? `"${items.map(i => `${i.productName} x${i.quantity}`).join("; ").replace(/"/g,'""')}"`
+      : o.productName;
+    return [
+      o.id, o.name, o.phone, o.city,
+      o.address ? `"${o.address.replace(/"/g,'""')}"` : "",
+      productCell, getOrderQuantity(o), o.price, getOrderTotal(o),
+      o.status, o.courierName ?? "", o.trackingNumber ?? "",
+      o.createdAt instanceof Date ? o.createdAt.toISOString() : "",
+      o.note ? `"${o.note.replace(/"/g,'""')}"` : "",
+    ];
+  });
   const csv = [header, ...rows].map(r => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -125,17 +152,43 @@ function exportCSV(orders: Order[]) {
   a.click(); URL.revokeObjectURL(url);
 }
 
+const OPEN_PARCEL_NOTE = "Allow customer to open parcel before payment / Parcel khulwa kar check karny dein.";
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://zaraar.shop";
+function trackUrl(cn: string) {
+  return `${SITE_URL}/track?cn=${encodeURIComponent(cn)}`;
+}
+
+// Builds the PostEx booking payload fields for an order. Single-product orders
+// keep the exact legacy shape (price/quantity passed through as-is). Multi-item
+// orders collapse to a combined description + quantity:1 + the full COD total,
+// with the true piece count passed separately via `pieces` so PostEx parcel
+// metadata stays accurate without risking COD rounding.
+function postexParamsFor(order: Order): { productName: string; price: number; quantity: number; pieces?: number } {
+  const items = getOrderItems(order);
+  if (items.length <= 1) {
+    return { productName: order.productName, price: order.price, quantity: order.quantity };
+  }
+  return {
+    productName: items.map(i => `${i.productName} x${i.quantity}`).join(", "),
+    price: getOrderTotal(order),
+    quantity: 1,
+    pieces: getOrderQuantity(order),
+  };
+}
+
 function buildWAMsg(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   const cn = order.trackingNumber ?? "";
   return encodeURIComponent([
     `Your order has been dispatched! 🚚`,
     `━━━━━━━━━━━━━`,
     `👤 *Name:* ${order.name}`,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     "",
     cn ? `📋 *Tracking Number:* ${cn}` : "",
+    cn ? `🔗 *Track here:* ${trackUrl(cn)}` : "",
     "",
     `📞 For any queries, message us here`,
     `━━━━━━━━━━━━━`,
@@ -147,16 +200,20 @@ function waHref(order: Order) {
   return `https://wa.me/92${order.phone.replace(/^0/,"")}?text=${buildWAMsg(order)}`;
 }
 
+function waHrefWithText(order: Order, text: string) {
+  return `https://wa.me/92${order.phone.replace(/^0/,"")}?text=${encodeURIComponent(text)}`;
+}
+
 // ─── Status-specific WA message builders ─────────────────────────────────────
 function waMsg_confirmed(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   return [
     `Hi ${order.name}! 👋`,
     ``,
     `Your order with *ZARAAR* has been confirmed ✅`,
     ``,
-    `📦 *Product:* ${order.productName}`,
-    `🔢 *Quantity:* ${order.quantity}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
+    `🔢 *Quantity:* ${getOrderQuantity(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     `📍 *Delivery to:* ${order.city}`,
     ``,
@@ -168,16 +225,17 @@ function waMsg_confirmed(order: Order): string {
 }
 
 function waMsg_dispatched(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   const cn = order.trackingNumber ?? "";
   return [
     `Hi ${order.name}! 🚚`,
     ``,
     `Your *ZARAAR* order has been dispatched!`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     cn ? `📋 *Tracking Number:* ${cn}` : "",
+    cn ? `🔗 *Track here:* ${trackUrl(cn)}` : "",
     ``,
     `Please keep the COD amount ready upon delivery.`,
     ``,
@@ -187,16 +245,17 @@ function waMsg_dispatched(order: Order): string {
 }
 
 function waMsg_outForDelivery(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   const cn = order.trackingNumber ?? "";
   return [
     `Hi ${order.name}! 📦`,
     ``,
     `Great news — your *ZARAAR* order is *out for delivery today!*`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()} _(please keep cash ready)_`,
     cn ? `📋 *Tracking:* ${cn}` : "",
+    cn ? `🔗 *Track here:* ${trackUrl(cn)}` : "",
     ``,
     `Please be available to receive your order.`,
     ``,
@@ -211,7 +270,7 @@ function waMsg_delivered(order: Order): string {
     ``,
     `Your *ZARAAR* order has been delivered — we hope you love it! ❤️`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     ``,
     `If you're happy with your purchase, please share it with your friends and family! 😊`,
     ``,
@@ -221,13 +280,13 @@ function waMsg_delivered(order: Order): string {
 }
 
 function waMsg_failedDelivery(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   return [
     `Hi ${order.name},`,
     ``,
     `We attempted to deliver your order but were unable to reach you. 😔`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     ``,
     `Please reply here or call us to reschedule your delivery at your convenience.`,
@@ -237,13 +296,13 @@ function waMsg_failedDelivery(order: Order): string {
 }
 
 function waMsg_returned(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   return [
     `Hi ${order.name},`,
     ``,
     `Your order has been returned to us as we were unable to complete the delivery.`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     ``,
     `If you'd like to re-order or have any questions, please message us here.`,
@@ -253,13 +312,13 @@ function waMsg_returned(order: Order): string {
 }
 
 function waMsg_returnInTransit(order: Order): string {
-  const total = order.price * order.quantity;
+  const total = getOrderTotal(order);
   return [
     `Hi ${order.name},`,
     ``,
     `Your *ZARAAR* order is currently on its way back to us. 📦`,
     ``,
-    `📦 *Product:* ${order.productName}`,
+    `📦 *Product:* ${getOrderProductLabel(order)}`,
     `💰 *COD Amount:* PKR ${total.toLocaleString()}`,
     ``,
     `If you'd like to reschedule delivery or have any questions, please reply here.`,
@@ -342,10 +401,10 @@ function KpiCard({ label, value, sub, icon, accent }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; accent?: boolean;
 }) {
   return (
-    <div className={`bg-white rounded-2xl border shadow-sm p-5 flex flex-col gap-3 ${accent ? "border-[#C4976A]/40 ring-1 ring-[#C4976A]/20" : "border-gray-100"}`}>
+    <div className={`bg-white rounded-2xl border shadow-sm p-5 flex flex-col gap-3 ${accent ? "border-[#C9A84C]/40 ring-1 ring-[#C9A84C]/20" : "border-gray-100"}`}>
       <div className="flex items-start justify-between">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
-        <span className={`p-2 rounded-xl ${accent ? "bg-[#C4976A]/10 text-[#C4976A]" : "bg-gray-100 text-gray-500"}`}>{icon}</span>
+        <span className={`p-2 rounded-xl ${accent ? "bg-[#C9A84C]/10 text-[#C9A84C]" : "bg-gray-100 text-gray-500"}`}>{icon}</span>
       </div>
       <div>
         <p className="text-2xl font-extrabold text-gray-900 tracking-tight">{value}</p>
@@ -367,7 +426,7 @@ function RevenueChart({ orders }: { orders: Order[] }) {
         active.includes(o.status) && o.createdAt instanceof Date && o.createdAt >= d && o.createdAt < next
       );
       result.push({ label: d.toLocaleDateString("en-PK",{weekday:"short"}), date: fmtDay(d),
-        revenue: dayOrders.reduce((s,o) => s + o.price * o.quantity, 0), count: dayOrders.length });
+        revenue: dayOrders.reduce((s,o) => s + getOrderTotal(o), 0), count: dayOrders.length });
     }
     return result;
   }, [orders]);
@@ -379,13 +438,13 @@ function RevenueChart({ orders }: { orders: Order[] }) {
           <h3 className="font-bold text-gray-900 text-sm">Revenue — Last 7 Days</h3>
           <p className="text-xs text-gray-400 mt-0.5">Active orders only</p>
         </div>
-        <BarChart2 className="w-4 h-4 text-[#C4976A]" />
+        <BarChart2 className="w-4 h-4 text-[#C9A84C]" />
       </div>
       <div className="flex items-end gap-2 h-28">
         {days.map((d,i) => (
           <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
             <div
-              className="w-full rounded-t-lg bg-[#C4976A]/70 hover:bg-[#C4976A] transition-colors"
+              className="w-full rounded-t-lg bg-[#C9A84C]/70 hover:bg-[#C9A84C] transition-colors"
               style={{ height: `${Math.max((d.revenue/max)*96, d.revenue > 0 ? 6 : 2)}px` }}
             />
             {d.revenue > 0 && (
@@ -413,7 +472,7 @@ function DashboardPage({ orders, onOpenOrder }: {
   const weekStart   = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
   const weekRevenue = orders
     .filter(o => ["confirmed","dispatched","in_transit","delivered"].includes(o.status) && o.createdAt instanceof Date && o.createdAt >= weekStart)
-    .reduce((s,o) => s + o.price * o.quantity, 0);
+    .reduce((s,o) => s + getOrderTotal(o), 0);
   const delivered     = orders.filter(o => o.status === "delivered").length;
   const active        = orders.filter(o => !["cancelled","returned"].includes(o.status)).length;
   const deliveryRate  = active > 0 ? Math.round((delivered/active)*100) : 0;
@@ -437,7 +496,7 @@ function DashboardPage({ orders, onOpenOrder }: {
           sub={urgentPending.length > 0 ? `${urgentPending.length} urgent` : "All recent"}
           icon={<Clock className="w-4 h-4" />} accent={pending.length > 0} />
         <KpiCard label="Today's Orders" value={String(todayOrders.length)}
-          sub={`PKR ${todayOrders.reduce((s,o) => s+o.price*o.quantity,0).toLocaleString()}`}
+          sub={`PKR ${todayOrders.reduce((s,o) => s+getOrderTotal(o),0).toLocaleString()}`}
           icon={<ShoppingCart className="w-4 h-4" />} />
         <KpiCard label="Week Revenue"
           value={`PKR ${weekRevenue >= 1000 ? (weekRevenue/1000).toFixed(1)+"k" : weekRevenue.toLocaleString()}`}
@@ -481,7 +540,7 @@ function DashboardPage({ orders, onOpenOrder }: {
                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${urgent?"bg-red-500":"bg-amber-400"}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 truncate">{o.name}</p>
-                      <p className="text-xs text-gray-400 truncate">{o.productName} · PKR {(o.price*o.quantity).toLocaleString()}</p>
+                      <p className="text-xs text-gray-400 truncate">{getOrderProductLabel(o)} · PKR {getOrderTotal(o).toLocaleString()}</p>
                     </div>
                     <p className={`text-xs font-semibold flex-shrink-0 ${urgent?"text-red-500":"text-amber-600"}`}>
                       {age < 1 ? `${Math.round(age*60)}m` : `${age.toFixed(0)}h`} ago
@@ -500,10 +559,11 @@ function DashboardPage({ orders, onOpenOrder }: {
 }
 
 // ─── OrdersPage ───────────────────────────────────────────────────────────────
-function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
+function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus, onBulkDelete }: {
   orders: Order[]; onOpenOrder: (o: Order) => void;
   onExport: (orders: Order[]) => void;
   onBulkStatus: (ids: string[], status: OrderStatus) => Promise<void>;
+  onBulkDelete: (ids: string[]) => Promise<void>;
 }) {
   const [search, setSearch]               = useState("");
   const [statusFilter, setStatusFilter]   = useState<OrderStatus | "all">("all");
@@ -513,6 +573,8 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
   const [selected, setSelected]           = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading]     = useState(false);
   const [bulkTarget, setBulkTarget]       = useState<OrderStatus | "">("");
+  const [bulkDeleting, setBulkDeleting]   = useState(false);
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false);
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -532,15 +594,16 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
       if (end   && (!(o.createdAt instanceof Date) || o.createdAt > end))   return false;
       if (search) {
         const q = search.toLowerCase();
-        if (!o.name.toLowerCase().includes(q) && !o.phone.includes(q) && !o.id.toLowerCase().includes(q) && !o.city.toLowerCase().includes(q) && !o.productName.toLowerCase().includes(q)) return false;
+        const matchesProduct = getOrderItems(o).some(i => i.productName.toLowerCase().includes(q));
+        if (!o.name.toLowerCase().includes(q) && !o.phone.includes(q) && !o.id.toLowerCase().includes(q) && !o.city.toLowerCase().includes(q) && !matchesProduct) return false;
       }
       return true;
     });
   }, [orders, statusFilter, dateFilter, customStart, customEnd, search]);
 
   const allSel   = filtered.length > 0 && filtered.every(o => selected.has(o.id));
-  const toggleAll = () => allSel ? setSelected(new Set()) : setSelected(new Set(filtered.map(o => o.id)));
-  const toggleOne = (id: string) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
+  const toggleAll = () => { setConfirmBulkDel(false); allSel ? setSelected(new Set()) : setSelected(new Set(filtered.map(o => o.id))); };
+  const toggleOne = (id: string) => { setConfirmBulkDel(false); const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
   const selIds   = filtered.filter(o => selected.has(o.id)).map(o => o.id);
 
   const handleBulkApply = async () => {
@@ -550,6 +613,16 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
     setBulkLoading(false);
     setSelected(new Set());
     setBulkTarget("");
+  };
+
+  const handleBulkDeleteClick = async () => {
+    if (selIds.length === 0) return;
+    if (!confirmBulkDel) { setConfirmBulkDel(true); return; }
+    setBulkDeleting(true);
+    await onBulkDelete(selIds);
+    setBulkDeleting(false);
+    setConfirmBulkDel(false);
+    setSelected(new Set());
   };
 
   return (
@@ -569,9 +642,16 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
               </select>
               <button disabled={bulkLoading || !bulkTarget}
                 onClick={handleBulkApply}
-                className="text-xs font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5 transition-colors">
+                className="text-xs font-bold bg-[#C9A84C] hover:bg-[#B8954A] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5 transition-colors">
                 {bulkLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <CheckCheck className="w-3 h-3"/>}
                 Apply ({selIds.length})
+              </button>
+              <button disabled={bulkDeleting}
+                onClick={handleBulkDeleteClick}
+                onBlur={() => setConfirmBulkDel(false)}
+                className={`text-xs font-bold px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5 transition-colors ${confirmBulkDel ? "bg-red-600 hover:bg-red-700 text-white" : "bg-red-50 hover:bg-red-100 text-red-600"}`}>
+                {bulkDeleting ? <Loader2 className="w-3 h-3 animate-spin"/> : <Trash2 className="w-3 h-3"/>}
+                {confirmBulkDel ? `Confirm delete (${selIds.length})` : `Delete (${selIds.length})`}
               </button>
             </div>
           )}
@@ -594,7 +674,7 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"/>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, phone, order ID, city…"
-            className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+            className="admin-input pl-9"/>
           {search && <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>}
         </div>
         <select value={dateFilter} onChange={e => setDateFilter(e.target.value as DateFilter)}
@@ -676,10 +756,10 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
                           {o.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{o.address}</p>}
                         </td>
                         <td className="px-4 py-3">
-                          <p className="text-gray-700 max-w-[180px] truncate">{o.productName}</p>
-                          <p className="text-xs text-gray-400">Qty {o.quantity}</p>
+                          <p className="text-gray-700 max-w-[180px] truncate">{getOrderProductLabel(o)}</p>
+                          <p className="text-xs text-gray-400">Qty {getOrderQuantity(o)}</p>
                         </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</td>
+                        <td className="px-4 py-3 font-bold text-gray-900">PKR {getOrderTotal(o).toLocaleString()}</td>
                         <td className="px-4 py-3"><StatusBadge status={o.status} size="sm"/></td>
                         <td className="px-4 py-3">
                           {o.trackingNumber
@@ -720,9 +800,9 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
                     </div>
                     <StatusBadge status={o.status} size="sm"/>
                   </div>
-                  <p className="text-sm text-gray-600 truncate mb-2">{o.productName}</p>
+                  <p className="text-sm text-gray-600 truncate mb-2">{getOrderProductLabel(o)}</p>
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</span>
+                    <span className="font-bold text-gray-900">PKR {getOrderTotal(o).toLocaleString()}</span>
                     <span className="text-xs text-gray-400">{fmtDate(o.createdAt)}</span>
                   </div>
                 </div>
@@ -741,8 +821,12 @@ function OrdersPage({ orders, onOpenOrder, onExport, onBulkStatus }: {
             {(Object.keys(SC) as OrderStatus[]).map(s => <option key={s} value={s}>{SC[s].label}</option>)}
           </select>
           <button disabled={bulkLoading || !bulkTarget} onClick={handleBulkApply}
-            className="text-xs font-bold bg-[#C4976A] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5">
+            className="text-xs font-bold bg-[#C9A84C] text-white px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5">
             {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <CheckCheck className="w-3.5 h-3.5"/>}
+          </button>
+          <button disabled={bulkDeleting} onClick={handleBulkDeleteClick} onBlur={() => setConfirmBulkDel(false)}
+            className={`text-xs font-bold px-3 py-2 rounded-xl disabled:opacity-50 flex items-center gap-1.5 ${confirmBulkDel ? "bg-red-600" : "bg-red-700/60"}`}>
+            {bulkDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Trash2 className="w-3.5 h-3.5"/>}
           </button>
           <button onClick={() => onExport(filtered.filter(o=>selected.has(o.id)))}
             className="text-xs font-bold bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-xl flex items-center gap-1.5">
@@ -818,9 +902,9 @@ function LogisticsPage({ orders, onOpenOrder, onBulkBook }: {
                     <span className="text-sm font-semibold text-gray-900 truncate">{o.name}</span>
                     {o.orderNumber && <span className="font-mono text-xs text-gray-400">#{o.orderNumber}</span>}
                   </div>
-                  <p className="text-xs text-gray-400 truncate">{o.productName} · {o.city}</p>
+                  <p className="text-xs text-gray-400 truncate">{getOrderProductLabel(o)} · {o.city}</p>
                 </div>
-                <p className="text-sm font-bold text-gray-900 flex-shrink-0">PKR {(o.price*o.quantity).toLocaleString()}</p>
+                <p className="text-sm font-bold text-gray-900 flex-shrink-0">PKR {getOrderTotal(o).toLocaleString()}</p>
                 <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0 cursor-pointer" onClick={()=>onOpenOrder(o)}/>
               </div>
             ))}
@@ -889,7 +973,7 @@ function LogisticsPage({ orders, onOpenOrder, onBulkBook }: {
                 </div>
                 <div className="flex-shrink-0 text-right">
                   {o.callAttempts ? <p className="text-xs text-orange-500">{o.callAttempts} call{o.callAttempts!==1?"s":""}</p> : null}
-                  <p className="text-sm font-bold text-gray-900">PKR {(o.price*o.quantity).toLocaleString()}</p>
+                  <p className="text-sm font-bold text-gray-900">PKR {getOrderTotal(o).toLocaleString()}</p>
                 </div>
                 <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0"/>
               </div>
@@ -930,7 +1014,7 @@ function InventoryPage({ stock, onSave }: { stock: StockMap; onSave: (id: string
                         if (e.key==="Enter") { setSaving(true); await onSave(p.id,parseInt(val)||0); setSaving(false); setEditing(null); }
                         if (e.key==="Escape") setEditing(null);
                       }}
-                      className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                      className="admin-input w-20 py-1.5 text-center"/>
                     <button disabled={saving} onClick={async()=>{setSaving(true);await onSave(p.id,parseInt(val)||0);setSaving(false);setEditing(null);}}
                       className="text-xs font-bold text-white bg-gray-900 px-3 py-1.5 rounded-xl disabled:opacity-50">
                       {saving ? <Loader2 className="w-3 h-3 animate-spin"/> : "Save"}
@@ -961,7 +1045,7 @@ function InventoryPage({ stock, onSave }: { stock: StockMap; onSave: (id: string
 function AnalyticsPage({ orders }: { orders: Order[] }) {
   const totalRevenue = orders
     .filter(o => ["confirmed","dispatched","in_transit","delivered"].includes(o.status))
-    .reduce((s,o) => s+o.price*o.quantity, 0);
+    .reduce((s,o) => s+getOrderTotal(o), 0);
   const delivered    = orders.filter(o=>o.status==="delivered").length;
   const returned     = orders.filter(o=>o.status==="returned").length;
   const cancelled    = orders.filter(o=>o.status==="cancelled").length;
@@ -972,9 +1056,11 @@ function AnalyticsPage({ orders }: { orders: Order[] }) {
   const topProducts = useMemo(() => {
     const map: Record<string,{name:string;count:number;revenue:number}> = {};
     orders.filter(o=>o.status!=="cancelled").forEach(o => {
-      const k = o.productId||o.productName;
-      if (!map[k]) map[k] = {name:o.productName,count:0,revenue:0};
-      map[k].count += o.quantity; map[k].revenue += o.price*o.quantity;
+      for (const item of getOrderItems(o)) {
+        const k = item.productId||item.productName;
+        if (!map[k]) map[k] = {name:item.productName,count:0,revenue:0};
+        map[k].count += item.quantity; map[k].revenue += item.price * item.quantity;
+      }
     });
     return Object.values(map).sort((a,b)=>b.count-a.count).slice(0,5);
   }, [orders]);
@@ -984,7 +1070,7 @@ function AnalyticsPage({ orders }: { orders: Order[] }) {
     orders.filter(o=>o.status!=="cancelled").forEach(o => {
       const c = o.city.trim();
       if (!map[c]) map[c]={count:0,revenue:0};
-      map[c].count++; map[c].revenue+=o.price*o.quantity;
+      map[c].count++; map[c].revenue+=getOrderTotal(o);
     });
     return Object.entries(map).sort((a,b)=>b[1].count-a[1].count).slice(0,5);
   }, [orders]);
@@ -1016,7 +1102,7 @@ function AnalyticsPage({ orders }: { orders: Order[] }) {
                   <span className="text-xs text-gray-500 flex-shrink-0">{p.count} sold</span>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#C4976A] rounded-full" style={{width:`${(p.count/maxP)*100}%`}}/>
+                  <div className="h-full bg-[#C9A84C] rounded-full" style={{width:`${(p.count/maxP)*100}%`}}/>
                 </div>
               </div>
             ))}
@@ -1032,7 +1118,7 @@ function AnalyticsPage({ orders }: { orders: Order[] }) {
                   <span className="text-xs text-gray-500">{data.count} orders · PKR {(data.revenue/1000).toFixed(1)}k</span>
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#C4976A]/70 rounded-full" style={{width:`${(data.count/maxC)*100}%`}}/>
+                  <div className="h-full bg-[#C9A84C]/70 rounded-full" style={{width:`${(data.count/maxC)*100}%`}}/>
                 </div>
               </div>
             ))}
@@ -1147,7 +1233,7 @@ function FinancePage({ expenses, onAdd, onDelete }: {
           <div className="col-span-2">
             <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Category</label>
             <select value={type} onChange={e => setType(e.target.value as ExpenseType)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white text-gray-700">
+              className="admin-input">
               {(Object.keys(EXPENSE_LABELS) as ExpenseType[]).map(t => (
                 <option key={t} value={t}>
                   {EXPENSE_IS_INCOME[t] ? "↑ " : "↓ "}{EXPENSE_LABELS[t]}
@@ -1160,22 +1246,22 @@ function FinancePage({ expenses, onAdd, onDelete }: {
             <input type="number" min={1} placeholder="5000"
               value={amount} onChange={e => setAmount(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+              className="admin-input"/>
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 mb-1.5 block">Date</label>
             <input type="date" max={todayStr}
               value={date} onChange={e => setDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+              className="admin-input"/>
           </div>
         </div>
         <div className="flex gap-3">
           <input type="text" placeholder="Note (optional)…"
             value={note} onChange={e => setNote(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") handleAdd(); }}
-            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+            className="admin-input flex-1"/>
           <button disabled={saving || !amount || parseFloat(amount) <= 0} onClick={handleAdd}
-            className="text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 disabled:opacity-50 transition-colors">
+            className="text-sm font-bold bg-[#C9A84C] hover:bg-[#B8954A] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 disabled:opacity-50 transition-colors">
             {saving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Plus className="w-4 h-4"/>} Add
           </button>
         </div>
@@ -1236,32 +1322,77 @@ function CreateOrderPanel({ open, onClose, onToast }: {
   const [phone, setPhone]     = useState("");
   const [city, setCity]       = useState("");
   const [address, setAddress] = useState("");
-  const [productId, setProductId] = useState(allVariants[0]?.id ?? "");
-  const [quantity, setQuantity] = useState("1");
+  const [lines, setLines]     = useState<{ productId: string; price: string; quantity: string }[]>(() => [makeLine()]);
+  const [deliveryFee, setDeliveryFee] = useState(String(DELIVERY_FEE));
   const [note, setNote]       = useState("");
   const [saving, setSaving]   = useState(false);
   const [error, setError]     = useState("");
 
-  const reset = () => { setName(""); setPhone(""); setCity(""); setAddress(""); setProductId(allVariants[0]?.id??""); setQuantity("1"); setNote(""); setError(""); };
+  function makeLine() {
+    const v = allVariants[0];
+    return { productId: v?.id ?? "", price: String(v?.price ?? ""), quantity: "1" };
+  }
+
+  const reset = () => {
+    setName(""); setPhone(""); setCity(""); setAddress("");
+    setLines([makeLine()]); setDeliveryFee(String(DELIVERY_FEE)); setNote(""); setError("");
+  };
 
   useEffect(() => { if (!open) reset(); }, [open]);
 
-  const selectedVariant = allVariants.find(v => v.id === productId);
+  const updateLine = (i: number, patch: Partial<{ productId: string; price: string; quantity: string }>) => {
+    setLines(prev => prev.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+  };
+  // Switching the product resets the line's price to that product's catalog
+  // price — admin can then edit it down for a bulk/discounted order.
+  const setLineProduct = (i: number, productId: string) => {
+    const v = allVariants.find(v => v.id === productId);
+    updateLine(i, { productId, price: String(v?.price ?? "") });
+  };
+  const addLine = () => setLines(prev => [...prev, makeLine()]);
+  const removeLine = (i: number) => setLines(prev => prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev);
+
+  const parsedLines = lines.map(l => ({
+    variant: allVariants.find(v => v.id === l.productId),
+    price: parseFloat(l.price) || 0,
+    quantity: Math.max(1, parseInt(l.quantity) || 1),
+  }));
+  const linesTotal = parsedLines.reduce((s, l) => s + l.price * l.quantity, 0);
+  const fee = Math.max(0, parseInt(deliveryFee) || 0);
+  const grandTotal = linesTotal + fee;
 
   const handleSubmit = async () => {
-    if (!name.trim() || !phone.trim() || !city.trim() || !address.trim() || !selectedVariant) {
-      setError("Name, phone, city, address and product are required."); return;
+    if (!name.trim() || !phone.trim() || !city.trim() || !address.trim() || parsedLines.some(l => !l.variant || l.price <= 0)) {
+      setError("Name, phone, city, address and a valid product/price for every line are required."); return;
     }
     setSaving(true); setError("");
     try {
-      const qty = Math.max(1, parseInt(quantity) || 1);
-      await createOrder({
-        name: name.trim(), phone: phone.trim(), city: city.trim(),
-        address: address.trim(), note: note.trim() || undefined,
-        productId, productName: selectedVariant.name,
-        price: selectedVariant.price, quantity: qty,
-        paymentStatus: "pending",
-      });
+      if (parsedLines.length === 1) {
+        const l = parsedLines[0];
+        // Single product — keep the exact legacy shape (delivery fee baked into
+        // price, no items[]/deliveryFee fields) so every existing read path
+        // keeps working unchanged.
+        const finalPrice = Math.round(l.price + fee / l.quantity);
+        await createOrder({
+          name: name.trim(), phone: phone.trim(), city: city.trim(),
+          address: address.trim(), note: note.trim() || undefined,
+          productId: l.variant!.id, productName: l.variant!.name,
+          price: finalPrice, quantity: l.quantity,
+          paymentStatus: "pending",
+        });
+      } else {
+        const items: OrderItem[] = parsedLines.map(l => ({
+          productId: l.variant!.id, productName: l.variant!.name, price: l.price, quantity: l.quantity,
+        }));
+        await createOrder({
+          name: name.trim(), phone: phone.trim(), city: city.trim(),
+          address: address.trim(), note: note.trim() || undefined,
+          productId: items[0].productId, productName: items[0].productName,
+          price: items[0].price, quantity: items[0].quantity,
+          items, deliveryFee: fee,
+          paymentStatus: "pending",
+        });
+      }
       onToast("Order created successfully");
       onClose();
     } catch(e) { setError(String(e)); }
@@ -1292,44 +1423,82 @@ function CreateOrderPanel({ open, onClose, onToast }: {
             <div key={f.label}>
               <label className="text-xs font-semibold text-gray-600 mb-1.5 block">{f.label}</label>
               <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.placeholder}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                className="admin-input"/>
             </div>
           ))}
           <div>
             <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Address</label>
             <textarea value={address} onChange={e=>setAddress(e.target.value)} rows={2} placeholder="Full delivery address"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+              className="admin-input resize-none"/>
           </div>
           <div>
-            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Product</label>
-            <select value={productId} onChange={e=>setProductId(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none bg-white">
-              {allVariants.map(v => <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>)}
-            </select>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-gray-600">Products</label>
+              <button type="button" onClick={addLine}
+                className="text-xs font-bold text-[#C9A84C] hover:text-[#B8954A] flex items-center gap-1">
+                <Plus className="w-3 h-3"/> Add product
+              </button>
+            </div>
+            <div className="space-y-3">
+              {lines.map((l, i) => (
+                <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <select value={l.productId} onChange={e=>setLineProduct(i, e.target.value)}
+                      className="admin-input flex-1">
+                      {allVariants.map(v => <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>)}
+                    </select>
+                    {lines.length > 1 && (
+                      <button type="button" onClick={()=>removeLine(i)}
+                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
+                        <Trash2 className="w-4 h-4"/>
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-[10px] font-semibold text-gray-400 mb-1 block">Unit Price (PKR)</label>
+                      <input type="number" min={0} value={l.price} onChange={e=>updateLine(i,{price:e.target.value})}
+                        className="admin-input"/>
+                    </div>
+                    <div className="w-24">
+                      <label className="text-[10px] font-semibold text-gray-400 mb-1 block">Qty</label>
+                      <input type="number" min={1} value={l.quantity} onChange={e=>updateLine(i,{quantity:e.target.value})}
+                        className="admin-input"/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <div>
-            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Quantity</label>
-            <input type="number" min={1} value={quantity} onChange={e=>setQuantity(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+            <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Delivery Fee (PKR)</label>
+            <input type="number" min={0} value={deliveryFee} onChange={e=>setDeliveryFee(e.target.value)}
+              className="admin-input"/>
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-600 mb-1.5 block">Note (optional)</label>
             <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Any special instructions"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+              className="admin-input"/>
           </div>
-          {selectedVariant && (
-            <div className="bg-[#C4976A]/10 border border-[#C4976A]/30 rounded-2xl p-4">
-              <p className="text-xs font-semibold text-[#C4976A] mb-1">Order Summary</p>
-              <p className="text-sm font-bold text-gray-900">{selectedVariant.name}</p>
-              <p className="text-sm text-gray-600 mt-0.5">
-                {Math.max(1,parseInt(quantity)||1)} × PKR {selectedVariant.price.toLocaleString()} = <span className="font-bold">PKR {(Math.max(1,parseInt(quantity)||1)*selectedVariant.price).toLocaleString()}</span>
+          {parsedLines.some(l => l.variant) && (
+            <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/30 rounded-2xl p-4">
+              <p className="text-xs font-semibold text-[#C9A84C] mb-1">Order Summary</p>
+              <div className="space-y-0.5">
+                {parsedLines.map((l, i) => l.variant && (
+                  <p key={i} className="text-sm text-gray-700">
+                    {l.quantity} × {l.variant.name} @ PKR {l.price.toLocaleString()}
+                  </p>
+                ))}
+              </div>
+              <p className="text-sm text-gray-600 mt-1.5">
+                + PKR {fee.toLocaleString()} delivery = <span className="font-bold">PKR {grandTotal.toLocaleString()}</span>
               </p>
             </div>
           )}
         </div>
         <div className="p-5 border-t border-gray-100 flex-shrink-0">
           <button disabled={saving} onClick={handleSubmit}
-            className="w-full text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+            className="w-full text-sm font-bold bg-[#C9A84C] hover:bg-[#B8954A] text-white py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
             {saving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Plus className="w-4 h-4"/>} Create Order
           </button>
         </div>
@@ -1354,6 +1523,8 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
   const [leopardCn, setLeopardCn]         = useState("");
   const [bookLoading, setBookLoading]     = useState(false);
   const [bookError, setBookError]         = useState("");
+  const [courierInstr, setCourierInstr]   = useState<"none"|"open"|"custom">("none");
+  const [customInstr, setCustomInstr]     = useState("");
   const [cancelling, setCancelling]       = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [callNote, setCallNote]           = useState("");
@@ -1367,16 +1538,21 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
   const [editNote, setEditNote]           = useState("");
   const [savingEdit, setSavingEdit]       = useState(false);
   const [editingOrder, setEditingOrder]   = useState(false);
-  const [editPrice, setEditPrice]         = useState("");
-  const [editQty, setEditQty]             = useState("");
-  const [editProductId, setEditProductId] = useState("");
+  const [editLines, setEditLines]         = useState<{ productId: string; price: string; quantity: string }[]>([]);
+  const [editDeliveryFee, setEditDeliveryFee] = useState("0");
   const [savingOrder, setSavingOrder]     = useState(false);
+  const [showHistory, setShowHistory]     = useState(false);
+  const [waOpenKey, setWaOpenKey]         = useState<string|null>(null);
+  const [waDrafts, setWaDrafts]           = useState<Record<string,string>>({});
 
   useEffect(() => {
     if (order) {
       setLeopardCn(order.trackingNumber ?? "");
       setCallNote(order.callNote ?? "");
       setBookError("");
+      if (order.courierNote === OPEN_PARCEL_NOTE) { setCourierInstr("open"); setCustomInstr(""); }
+      else if (order.courierNote) { setCourierInstr("custom"); setCustomInstr(order.courierNote); }
+      else { setCourierInstr("none"); setCustomInstr(""); }
       setConfirmDel(false);
       setConfirmCancel(false);
       setEditing(false);
@@ -1386,18 +1562,39 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
       setEditCity(order.city);
       setEditNote(order.note ?? "");
       setEditingOrder(false);
-      setEditPrice(String(order.price));
-      setEditQty(String(order.quantity));
-      setEditProductId("");
+      setEditLines(getOrderItems(order).map(i => ({ productId: i.productId, price: String(i.price), quantity: String(i.quantity) })));
+      setEditDeliveryFee(String(order.deliveryFee ?? 0));
+      setShowHistory(false);
+      setWaOpenKey(null);
+      setWaDrafts({});
     }
   }, [order?.id]);
 
   if (!order) return null;
 
-  const total    = order.price * order.quantity;
+  const total    = getOrderTotal(order);
+  const items    = getOrderItems(order);
   const urgent   = order.status === "pending" && orderAgeHours(order) > 2;
   const dupPhone = allOrders.filter(o => o.phone===order.phone && o.id!==order.id);
   const trans    = TRANS[order.status] ?? [];
+
+  const updateEditLine = (i: number, patch: Partial<{ productId: string; price: string; quantity: string }>) => {
+    setEditLines(prev => prev.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+  };
+  const setEditLineProduct = (i: number, productId: string) => {
+    const v = allVariants.find(v => v.id === productId);
+    updateEditLine(i, { productId, price: String(v?.price ?? "") });
+  };
+  const addEditLine = () => setEditLines(prev => [...prev, { productId: allVariants[0]?.id ?? "", price: String(allVariants[0]?.price ?? ""), quantity: "1" }]);
+  const removeEditLine = (i: number) => setEditLines(prev => prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev);
+
+  const parsedEditLines = editLines.map(l => ({
+    variant: allVariants.find(v => v.id === l.productId),
+    price: parseFloat(l.price) || 0,
+    quantity: Math.max(1, parseInt(l.quantity) || 1),
+  }));
+  const editFee = Math.max(0, parseInt(editDeliveryFee) || 0);
+  const editGrandTotal = parsedEditLines.reduce((s, l) => s + l.price * l.quantity, 0) + editFee;
 
   const handleStatus = async (next: OrderStatus) => {
     setStatusLoading(next);
@@ -1407,12 +1604,12 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
 
   const handlePostexBook = async () => {
     setBookLoading(true); setBookError("");
+    const courierNote = courierInstr==="open" ? OPEN_PARCEL_NOTE : courierInstr==="custom" ? customInstr.trim() : "";
     try {
       const r = await postexBook({ orderId:String(order.orderNumber ?? order.id), name:order.name, phone:order.phone,
-        address:order.address ?? "", city:order.city, productName:order.productName,
-        price:order.price, quantity:order.quantity });
+        address:order.address ?? "", city:order.city, note:courierNote || undefined, ...postexParamsFor(order) });
       if (r.ok && r.trackingNumber) {
-        await onUpdate(order.id, { trackingNumber:r.trackingNumber, courierName:"postex" });
+        await onUpdate(order.id, { trackingNumber:r.trackingNumber, courierName:"postex", courierNote:courierNote || undefined });
         await onStatusChange(order, "dispatched");
         onToast(`PostEx booked — ${r.trackingNumber}`);
       } else {
@@ -1436,16 +1633,20 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
     if (!confirmCancel) { setConfirmCancel(true); return; }
     setCancelling(true);
     try {
-      // Clear courier fields locally and revert to confirmed. This does not
-      // cancel with PostEx — cancel/track actions were removed from the
-      // server proxy, so cancel directly via the PostEx merchant portal too.
+      let cancelledWithPostEx = false;
+      if (order.courierName === "postex" && order.trackingNumber) {
+        const r = await postexCancel(order.trackingNumber);
+        cancelledWithPostEx = r.ok;
+      }
       await onUpdate(order.id, {
         trackingNumber: undefined, courierName: undefined,
         postexStatus: undefined, postexLastSync: undefined, postexData: undefined,
       });
       await onStatusChange(order, "confirmed");
       setConfirmCancel(false);
-      onToast("Booking cleared locally — cancel with PostEx separately if needed");
+      onToast(cancelledWithPostEx
+        ? "Booking cancelled with PostEx"
+        : "Local booking cleared — cancel on PostEx portal too");
     } finally { setCancelling(false); }
   };
 
@@ -1475,22 +1676,33 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
   };
 
   const handleSaveOrderEdit = async () => {
+    const valid = parsedEditLines.filter(l => l.variant && l.price > 0);
+    if (valid.length === 0) return;
     setSavingOrder(true);
     try {
-      const p = parseInt(editPrice);
-      const q = parseInt(editQty);
-      const updates: Partial<OrderData> = {};
-      if (!isNaN(p) && p > 0) updates.price = p;
-      if (!isNaN(q) && q > 0) updates.quantity = q;
-      if (editProductId) {
-        const v = allVariants.find(x => x.id === editProductId);
-        if (v) {
-          updates.productId   = editProductId;
-          updates.productName = v.name;
-          if (isNaN(p) || p === order.price) updates.price = v.price;
+      const updates: Record<string, unknown> = {};
+      if (valid.length === 1) {
+        updates.productId   = valid[0].variant!.id;
+        updates.productName = valid[0].variant!.name;
+        updates.price       = valid[0].price;
+        updates.quantity    = valid[0].quantity;
+        // Clear any stale multi-item fields if this order previously had them.
+        if (order.items && order.items.length > 0) {
+          updates.items       = deleteField();
+          updates.deliveryFee = deleteField();
         }
+      } else {
+        const newItems: OrderItem[] = valid.map(l => ({
+          productId: l.variant!.id, productName: l.variant!.name, price: l.price, quantity: l.quantity,
+        }));
+        updates.productId   = newItems[0].productId;
+        updates.productName = newItems[0].productName;
+        updates.price       = newItems[0].price;
+        updates.quantity    = newItems[0].quantity;
+        updates.items       = newItems;
+        updates.deliveryFee = editFee;
       }
-      await onUpdate(order.id, updates);
+      await onUpdate(order.id, updates as Partial<OrderData>);
       setEditingOrder(false);
       onToast("Order details updated");
     } finally { setSavingOrder(false); }
@@ -1524,11 +1736,35 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-5 space-y-4">
-            {/* Duplicate phone */}
+            {/* Returning customer — expandable order history for this phone */}
             {dupPhone.length > 0 && (
-              <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-200 rounded-xl">
-                <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0"/>
-                <p className="text-xs text-orange-700 font-medium">Same phone in {dupPhone.length} other order{dupPhone.length>1?"s":""}</p>
+              <div className="rounded-2xl border border-[#C9A84C]/30 bg-[#C9A84C]/[0.07] overflow-hidden">
+                <button onClick={() => setShowHistory(v => !v)} className="w-full flex items-center gap-2.5 p-3.5 text-left">
+                  <div className="w-7 h-7 rounded-full bg-[#C9A84C]/20 flex items-center justify-center flex-shrink-0">
+                    <RotateCcw className="w-3.5 h-3.5 text-[#9C7A2E]"/>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-[#9C7A2E]">Returning Customer</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{dupPhone.length} previous order{dupPhone.length>1?"s":""} with this phone number</p>
+                  </div>
+                  <ChevronRight className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform duration-200 ${showHistory ? "rotate-90" : ""}`}/>
+                </button>
+                {showHistory && (
+                  <div className="divide-y divide-[#C9A84C]/15 border-t border-[#C9A84C]/20">
+                    {dupPhone.slice(0,8).map(o => (
+                      <div key={o.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">{getOrderProductLabel(o)}</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">{fmtDate(o.createdAt)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <StatusBadge status={o.status} size="sm"/>
+                          <span className="text-xs font-bold text-gray-700">PKR {getOrderTotal(o).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {/* Customer */}
@@ -1572,13 +1808,45 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
               {getWAMsgs(order).length > 0 && (
                 <div className="space-y-1.5 pt-1 border-t border-gray-200">
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">WhatsApp Messages</p>
-                  {getWAMsgs(order).map(m => (
-                    <button key={m.key} onClick={()=>copy(m.text, `wa-${m.key}`)}
-                      className="w-full flex items-center gap-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-xl transition-colors">
-                      {copied===`wa-${m.key}` ? <Check className="w-3.5 h-3.5 text-green-600 flex-shrink-0"/> : <MessageCircle className="w-3.5 h-3.5 flex-shrink-0"/>}
-                      {copied===`wa-${m.key}` ? "Copied!" : `Copy: ${m.label}`}
-                    </button>
-                  ))}
+                  {getWAMsgs(order).map(m => {
+                    const isOpen = waOpenKey === m.key;
+                    const draft  = waDrafts[m.key] ?? m.text;
+                    const edited = draft !== m.text;
+                    return (
+                      <div key={m.key} className="rounded-xl overflow-hidden">
+                        <button onClick={()=>setWaOpenKey(isOpen ? null : m.key)}
+                          className="w-full flex items-center gap-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-xl transition-colors">
+                          <MessageCircle className="w-3.5 h-3.5 flex-shrink-0"/>
+                          <span className="flex-1 text-left">{m.label}{edited ? " · edited" : ""}</span>
+                          <Edit2 className="w-3 h-3 text-green-500 flex-shrink-0"/>
+                        </button>
+                        {isOpen && (
+                          <div className="bg-green-50/60 border border-green-100 rounded-xl mt-1.5 p-2.5 space-y-2">
+                            <textarea value={draft} rows={6}
+                              onChange={e=>setWaDrafts(d=>({ ...d, [m.key]: e.target.value }))}
+                              className="admin-input py-2 resize-none font-mono text-[11px] leading-relaxed"/>
+                            <div className="flex items-center gap-2">
+                              <button onClick={()=>copy(draft, `wa-${m.key}`)}
+                                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors">
+                                {copied===`wa-${m.key}` ? <Check className="w-3.5 h-3.5 text-green-600"/> : <Copy className="w-3.5 h-3.5"/>}
+                                {copied===`wa-${m.key}` ? "Copied!" : "Copy"}
+                              </button>
+                              <a href={waHrefWithText(order, draft)} target="_blank" rel="noreferrer"
+                                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold text-white bg-green-600 hover:bg-green-700 px-3 py-2 rounded-xl transition-colors">
+                                <MessageCircle className="w-3.5 h-3.5"/> Send
+                              </a>
+                            </div>
+                            {edited && (
+                              <button onClick={()=>setWaDrafts(d=>{ const n={...d}; delete n[m.key]; return n; })}
+                                className="text-[10px] text-gray-400 hover:text-gray-600 underline">
+                                Reset to template
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {/* Inline edit form */}
@@ -1593,19 +1861,19 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                     <div key={f.label}>
                       <label className="text-xs text-gray-500 mb-1 block">{f.label}</label>
                       <input value={f.val} onChange={e=>f.set(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                        className="admin-input py-2"/>
                     </div>
                   ))}
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Address</label>
                     <textarea value={editAddress} onChange={e=>setEditAddress(e.target.value)} rows={2}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+                      className="admin-input py-2 resize-none"/>
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">Note</label>
                     <input value={editNote} onChange={e=>setEditNote(e.target.value)}
                       placeholder="Order note (optional)"
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                      className="admin-input py-2"/>
                   </div>
                   <button disabled={savingEdit} onClick={handleSaveEdit}
                     className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
@@ -1623,9 +1891,16 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                   <Edit2 className="w-3 h-3"/> {editingOrder ? "Cancel" : "Edit"}
                 </button>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{order.productName}</p>
-                <p className="text-xs text-gray-400 mt-0.5">Qty {order.quantity} × PKR {order.price.toLocaleString()}</p>
+              <div className="space-y-1.5">
+                {items.map((it, i) => (
+                  <div key={i}>
+                    <p className="text-sm font-semibold text-gray-900">{it.productName}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Qty {it.quantity} × PKR {it.price.toLocaleString()}</p>
+                  </div>
+                ))}
+                {!!order.deliveryFee && (
+                  <p className="text-xs text-gray-400">+ PKR {order.deliveryFee.toLocaleString()} delivery</p>
+                )}
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-gray-200">
                 <span className="text-xs font-semibold text-gray-500">COD Total</span>
@@ -1639,36 +1914,50 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
               )}
               {editingOrder && (
                 <div className="space-y-3 pt-2 border-t border-gray-200">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Edit Order</p>
-                  <div>
-                    <label className="text-xs text-gray-500 mb-1 block">Swap Product (optional)</label>
-                    <select value={editProductId} onChange={e => {
-                      setEditProductId(e.target.value);
-                      if (e.target.value) {
-                        const v = allVariants.find(x => x.id === e.target.value);
-                        if (v) setEditPrice(String(v.price));
-                      }
-                    }} className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none bg-white">
-                      <option value="">— keep current product —</option>
-                      {allVariants.map(v => (
-                        <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>
-                      ))}
-                    </select>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Edit Order</p>
+                    <button type="button" onClick={addEditLine}
+                      className="text-xs font-bold text-[#C9A84C] hover:text-[#B8954A] flex items-center gap-1">
+                      <Plus className="w-3 h-3"/> Add product
+                    </button>
                   </div>
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="text-xs text-gray-500 mb-1 block">Unit Price (PKR)</label>
-                      <input type="number" min={1} value={editPrice} onChange={e => setEditPrice(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                  {editLines.map((l, i) => (
+                    <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <select value={l.productId} onChange={e => setEditLineProduct(i, e.target.value)}
+                          className="admin-input py-2 flex-1">
+                          {allVariants.map(v => (
+                            <option key={v.id} value={v.id}>{v.name} — PKR {v.price.toLocaleString()}</option>
+                          ))}
+                        </select>
+                        {editLines.length > 1 && (
+                          <button type="button" onClick={() => removeEditLine(i)}
+                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0">
+                            <Trash2 className="w-4 h-4"/>
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className="text-xs text-gray-500 mb-1 block">Unit Price (PKR)</label>
+                          <input type="number" min={0} value={l.price} onChange={e => updateEditLine(i, { price: e.target.value })}
+                            className="admin-input py-2"/>
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-xs text-gray-500 mb-1 block">Quantity</label>
+                          <input type="number" min={1} value={l.quantity} onChange={e => updateEditLine(i, { quantity: e.target.value })}
+                            className="admin-input py-2"/>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <label className="text-xs text-gray-500 mb-1 block">Quantity</label>
-                      <input type="number" min={1} value={editQty} onChange={e => setEditQty(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
-                    </div>
+                  ))}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Delivery Fee (PKR)</label>
+                    <input type="number" min={0} value={editDeliveryFee} onChange={e => setEditDeliveryFee(e.target.value)}
+                      className="admin-input py-2"/>
                   </div>
                   <p className="text-[10px] text-gray-400">
-                    New total: PKR {((parseInt(editPrice) || order.price) * (parseInt(editQty) || order.quantity)).toLocaleString()}
+                    New COD total: PKR {editGrandTotal.toLocaleString()}
                   </p>
                   <button disabled={savingOrder} onClick={handleSaveOrderEdit}
                     className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
@@ -1698,7 +1987,7 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                   {trans.map(t => (
                     <button key={t.next} disabled={!!statusLoading} onClick={()=>handleStatus(t.next)}
                       className={`text-sm font-bold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-1.5 ${
-                        t.primary ? "bg-[#C4976A] hover:bg-[#b3865a] text-white" :
+                        t.primary ? "bg-[#C9A84C] hover:bg-[#B8954A] text-white" :
                         t.danger  ? "bg-red-50 hover:bg-red-100 text-red-700 border border-red-200" :
                         "bg-gray-100 hover:bg-gray-200 text-gray-700"
                       }`}>
@@ -1725,6 +2014,28 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                       </button>
                     </div>
                   </div>
+                  {order.courierNote && (
+                    <p className="text-xs text-gray-500 italic flex items-start gap-1.5">
+                      <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0"/> {order.courierNote}
+                    </p>
+                  )}
+                  {/* Live PostEx status from auto-sync */}
+                  {order.courierName === "postex" && order.postexStatus && (() => {
+                    const ps = POSTEX_STATUS_STYLE[order.postexStatus] ?? { bg: "bg-gray-100", text: "text-gray-600" };
+                    const syncDate = order.postexLastSync instanceof Date
+                      ? order.postexLastSync
+                      : (order.postexLastSync as unknown as { toDate?: () => Date })?.toDate?.();
+                    return (
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${ps.bg} ${ps.text}`}>
+                          {order.postexStatus}
+                        </span>
+                        {syncDate && (
+                          <p className="text-[10px] text-gray-400">{fmtDate(syncDate)}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {(order.status==="dispatched"||order.status==="in_transit") && (
                     <a href={waHref(order)} target="_blank" rel="noreferrer"
                       className="flex items-center gap-2 text-sm font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2.5 rounded-xl transition-colors">
@@ -1740,7 +2051,7 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                     {cancelling
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin"/>
                       : <XOctagon className="w-3.5 h-3.5"/>}
-                    {confirmCancel ? "Tap again — clears locally (cancel with PostEx separately)" : "Cancel Booking & Re-book"}
+                    {confirmCancel ? "Tap again to confirm — cancels with PostEx" : "Cancel Booking & Re-book"}
                   </button>
                 </div>
               ) : (
@@ -1756,6 +2067,21 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                   {courierTab==="postex" ? (
                     <div className="space-y-2">
                       <p className="text-xs text-gray-500">Auto-book via PostEx API. Order will be marked dispatched.</p>
+                      <div className="space-y-1.5">
+                        <p className="text-[11px] font-bold text-gray-500 uppercase">Courier instruction (sent as Notes to PostEx)</p>
+                        <div className="flex rounded-xl bg-gray-200 p-0.5">
+                          {([["none","None"],["open","Allow Open"],["custom","Custom"]] as const).map(([v,label]) => (
+                            <button key={v} onClick={()=>setCourierInstr(v)}
+                              className={`flex-1 text-xs font-bold py-1.5 rounded-[10px] transition-colors ${courierInstr===v?"bg-white text-gray-900 shadow-sm":"text-gray-500"}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {courierInstr==="custom" && (
+                          <input value={customInstr} onChange={e=>setCustomInstr(e.target.value)}
+                            placeholder="e.g. Call before delivery…" className="admin-input py-2 text-sm"/>
+                        )}
+                      </div>
                       {bookError && <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-xl">{bookError}</p>}
                       <button disabled={bookLoading} onClick={handlePostexBook}
                         className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
@@ -1766,7 +2092,7 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                     <div className="space-y-2">
                       <p className="text-xs text-gray-500">Enter Leopard CN manually.</p>
                       <input value={leopardCn} onChange={e=>setLeopardCn(e.target.value)} placeholder="CN number…"
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10"/>
+                        className="admin-input py-2"/>
                       <button disabled={bookLoading||!leopardCn.trim()} onClick={handleLeopardSave}
                         className="w-full text-sm font-bold bg-gray-900 hover:bg-gray-800 text-white py-2.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
                         {bookLoading ? <Loader2 className="w-4 h-4 animate-spin"/> : <Check className="w-4 h-4"/>} Save CN
@@ -1792,7 +2118,7 @@ function DetailPanel({ order, open, onClose, allOrders, onStatusChange, onUpdate
                 )}
                 <textarea value={callNote} onChange={e=>setCallNote(e.target.value)}
                   placeholder="Call note (optional)…" rows={2}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none"/>
+                  className="admin-input py-2 resize-none"/>
                 <button disabled={savingCall} onClick={handleLogCall}
                   className="w-full text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
                   {savingCall ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Phone className="w-3.5 h-3.5"/>} Log Call Attempt
@@ -1833,7 +2159,7 @@ function Sidebar({ page, onPage, pendingCount, onSignOut, mobileOpen, onMobileCl
     <div className="flex flex-col h-full bg-[#111827]">
       <div className="px-5 py-6 flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-[#C4976A] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-[#C9A84C] flex items-center justify-center flex-shrink-0">
             <span className="text-white font-black text-xs">Z</span>
           </div>
           <div>
@@ -1848,12 +2174,12 @@ function Sidebar({ page, onPage, pendingCount, onSignOut, mobileOpen, onMobileCl
           return (
             <button key={item.p} onClick={()=>{onPage(item.p);onMobileClose();}}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                active ? "bg-[#C4976A]/15 text-[#C4976A]" : "text-[#9CA3AF] hover:text-white hover:bg-white/5"
+                active ? "bg-[#C9A84C]/15 text-[#C9A84C]" : "text-[#9CA3AF] hover:text-white hover:bg-white/5"
               }`}>
               {item.icon}
               <span className="flex-1 text-left">{item.label}</span>
               {item.p==="orders" && pendingCount>0 && (
-                <span className="text-[10px] font-black bg-[#C4976A] text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{pendingCount}</span>
+                <span className="text-[10px] font-black bg-[#C9A84C] text-white px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{pendingCount}</span>
               )}
             </button>
           );
@@ -1931,9 +2257,11 @@ export default function AdminDashboard() {
   const showToast = useCallback((msg: string) => setToast(msg), []);
 
   const handleStatusChange = useCallback(async (o: Order, next: OrderStatus) => {
-    const delta = stockDelta(o.status, next, o.quantity);
     await updateOrderStatus(o.id, next);
-    if (delta !== 0) await adjustStock(o.productId, delta);
+    for (const item of getOrderItems(o)) {
+      const delta = stockDelta(o.status, next, item.quantity);
+      if (delta !== 0) await adjustStock(item.productId, delta);
+    }
   }, []);
 
   const handleUpdate = useCallback(async (id: string, data: Partial<OrderData>) => {
@@ -1950,6 +2278,11 @@ export default function AdminDashboard() {
     showToast(`${ids.length} order${ids.length!==1?"s":""} → ${SC[status].label}`);
   }, [orders, handleStatusChange, showToast]);
 
+  const handleBulkDelete = useCallback(async (ids: string[]) => {
+    await Promise.all(ids.map(id => deleteOrder(id)));
+    showToast(`${ids.length} order${ids.length!==1?"s":""} deleted`);
+  }, [showToast]);
+
   const handleSaveStock = useCallback(async (id: string, val: number) => { await setStock(id, val); }, []);
   const handleAddExpense = useCallback(async (data: ExpenseData) => { await addExpense(data); }, []);
   const handleDeleteExpense = useCallback(async (id: string) => { await deleteExpense(id); }, []);
@@ -1959,7 +2292,7 @@ export default function AdminDashboard() {
     await Promise.all(toBook.map(async o => {
       try {
         const r = await postexBook({ orderId:String(o.orderNumber ?? o.id), name:o.name, phone:o.phone,
-          address:o.address ?? "", city:o.city, productName:o.productName, price:o.price, quantity:o.quantity });
+          address:o.address ?? "", city:o.city, ...postexParamsFor(o) });
         if (r.ok && r.trackingNumber) {
           await handleUpdate(o.id, { trackingNumber:r.trackingNumber, courierName:"postex" });
           await handleStatusChange(o, "dispatched");
@@ -1976,10 +2309,10 @@ export default function AdminDashboard() {
     return (
       <div className="min-h-screen bg-[#111827] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-2xl bg-[#C4976A] flex items-center justify-center">
+          <div className="w-10 h-10 rounded-2xl bg-[#C9A84C] flex items-center justify-center">
             <span className="text-white font-black text-sm">Z</span>
           </div>
-          <Loader2 className="w-5 h-5 animate-spin text-[#C4976A]"/>
+          <Loader2 className="w-5 h-5 animate-spin text-[#C9A84C]"/>
         </div>
       </div>
     );
@@ -1998,7 +2331,7 @@ export default function AdminDashboard() {
             <Menu className="w-5 h-5"/>
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-xl bg-[#C4976A] flex items-center justify-center">
+            <div className="w-7 h-7 rounded-xl bg-[#C9A84C] flex items-center justify-center">
               <span className="text-white font-black text-[10px]">Z</span>
             </div>
             <span className="text-white font-bold text-sm">Admin</span>
@@ -2011,7 +2344,7 @@ export default function AdminDashboard() {
               <Plus className="w-4 h-4"/>
             </button>
             {pendingCount > 0 && (
-              <span className="text-[10px] font-black bg-[#C4976A] text-white px-2 py-0.5 rounded-full">{pendingCount}</span>
+              <span className="text-[10px] font-black bg-[#C9A84C] text-white px-2 py-0.5 rounded-full">{pendingCount}</span>
             )}
           </div>
         </header>
@@ -2022,13 +2355,13 @@ export default function AdminDashboard() {
             {soundEnabled ? <Volume2 className="w-4 h-4"/> : <VolumeX className="w-4 h-4"/>}
           </button>
           <button onClick={()=>setCreateOpen(true)}
-            className="flex items-center gap-2 text-sm font-bold bg-[#C4976A] hover:bg-[#b3865a] text-white px-4 py-2 rounded-xl transition-colors">
+            className="flex items-center gap-2 text-sm font-bold bg-[#C9A84C] hover:bg-[#B8954A] text-white px-4 py-2 rounded-xl transition-colors">
             <Plus className="w-4 h-4"/> New Order
           </button>
         </div>
         <main className="flex-1 overflow-y-auto">
           {page==="dashboard" && <DashboardPage orders={orders} onOpenOrder={openOrder}/>}
-          {page==="orders"    && <OrdersPage orders={orders} onOpenOrder={openOrder} onExport={exportCSV} onBulkStatus={handleBulkStatus}/>}
+          {page==="orders"    && <OrdersPage orders={orders} onOpenOrder={openOrder} onExport={exportCSV} onBulkStatus={handleBulkStatus} onBulkDelete={handleBulkDelete}/>}
           {page==="logistics" && <LogisticsPage orders={orders} onOpenOrder={openOrder} onBulkBook={handleBulkBook}/>}
           {page==="inventory" && <InventoryPage stock={stock} onSave={handleSaveStock}/>}
           {page==="analytics" && <AnalyticsPage orders={orders}/>}

@@ -4,8 +4,8 @@ import { useState } from "react";
 
 const FAQS = [
   {
-    q: "Are these original watches from Patek Philippe, Tissot, or Hublot?",
-    a: "No, and we are completely upfront about this. ZARAAR sells premium quality watches inspired by the designs of these iconic houses. They are independently manufactured to a high standard. We do not claim brand affiliation. What you see in the photos is exactly what arrives at your door.",
+    q: "Are ZARAAR watches original designer brand watches?",
+    a: "No, and we are completely upfront about this. ZARAAR sells its own independently designed and manufactured timepieces under the ZARAAR brand. Our Classic, Urban, and Skeleton series are ZARAAR originals with unique designs. We do not claim any third-party brand affiliation. What you see in the photos is exactly what arrives at your door.",
   },
   {
     q: "How do I place an order?",
@@ -37,7 +37,7 @@ export default function FAQ() {
       <div className="max-w-screen-xl mx-auto">
 
         <div className="mb-14">
-          <p className="font-body text-[8px] tracking-[0.38em] uppercase text-black/30 mb-4">
+          <p className="eyebrow-light mb-4">
             Frequently Asked
           </p>
           <h2
@@ -61,7 +61,7 @@ export default function FAQ() {
                 </span>
                 <span
                   className={`shrink-0 w-5 h-5 flex items-center justify-center font-body text-lg font-light transition-all duration-300 mt-0.5 ${
-                    open === i ? "text-[#C9A84C] rotate-0" : "text-black/28"
+                    open === i ? "text-[#C9A84C] rotate-0" : "text-black/48"
                   }`}
                 >
                   {open === i ? "−" : "+"}
