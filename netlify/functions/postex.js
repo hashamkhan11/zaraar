@@ -28,10 +28,15 @@ async function verifyAdmin(event) {
   const header = event.headers.authorization || event.headers.Authorization || "";
   const idToken = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!idToken || !PROJECT_ID) throw new Error("Missing token");
-  await jwtVerify(idToken, JWKS, {
+  const { payload } = await jwtVerify(idToken, JWKS, {
     issuer: `https://securetoken.google.com/${PROJECT_ID}`,
     audience: PROJECT_ID,
   });
+  // A valid token only proves the caller is signed in — it says nothing
+  // about who they are. Require the admin custom claim (set via
+  // scripts/set-admin-claim.js) so any logged-in Firebase user can't book,
+  // track or cancel courier shipments.
+  if (payload.admin !== true) throw new Error("Not an admin");
 }
 
 exports.handler = async (event) => {
