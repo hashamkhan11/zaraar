@@ -48,6 +48,24 @@ export interface Expense extends ExpenseData {
   createdAt: Date;
 }
 
+export interface ProfitLoss {
+  income: number;
+  costs: number;
+  net: number;
+  byType: { type: ExpenseType; total: number }[];
+}
+
+/** Computes income/costs/net P&L for a list of expenses (e.g. a day or month's worth). */
+export function calcPL(list: Expense[]): ProfitLoss {
+  const income = list.filter((e) => EXPENSE_IS_INCOME[e.type]).reduce((s, e) => s + e.amount, 0);
+  const costs  = list.filter((e) => !EXPENSE_IS_INCOME[e.type]).reduce((s, e) => s + e.amount, 0);
+  const byType = (Object.keys(EXPENSE_LABELS) as ExpenseType[]).map((t) => ({
+    type: t,
+    total: list.filter((e) => e.type === t).reduce((s, e) => s + e.amount, 0),
+  }));
+  return { income, costs, net: income - costs, byType };
+}
+
 export async function addExpense(data: ExpenseData): Promise<string> {
   const payload = Object.fromEntries(
     Object.entries({ ...data, createdAt: serverTimestamp() }).filter(([, v]) => v !== undefined)
