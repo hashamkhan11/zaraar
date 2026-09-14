@@ -144,10 +144,15 @@ function cleanProductName(name: string): string {
  * then the real sequential order number is patched in the background.
  * This removes the blocking transaction round-trip from the customer's wait time.
  */
+// Epoch offset subtracted from the current unix timestamp when generating a
+// temp order number, purely so the temp number stays short (small integer)
+// until getNextOrderNumber() patches in the real sequential order number.
+const TEMP_ORDER_NUMBER_EPOCH_OFFSET = 1700000000;
+
 export async function createOrder(data: OrderData): Promise<string> {
   // Generate a temporary order number locally (no Firestore round-trip needed)
   // Format: timestamp-based so it's always unique and roughly sequential
-  const tempOrderNumber = Math.floor(Date.now() / 1000) - 1700000000 + 1000;
+  const tempOrderNumber = Math.floor(Date.now() / 1000) - TEMP_ORDER_NUMBER_EPOCH_OFFSET + 1000;
 
   const payload = Object.fromEntries(
     Object.entries({
