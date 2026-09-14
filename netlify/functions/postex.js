@@ -167,14 +167,20 @@ exports.handler = async (event) => {
       ...(order.note && order.note.trim() ? { transactionNotes: order.note.trim() } : {}),
     };
 
-    console.log("PostEx book payload:", JSON.stringify(payload));
+    // Payload/response contain customer name, phone and address — only log
+    // them when explicitly debugging locally, never in production logs.
+    if (process.env.DEBUG_LOGGING === "true") {
+      console.log("PostEx book payload:", JSON.stringify(payload));
+    }
     const res = await fetch(`${BASE}/order/v3/create-order`, {
       method: "POST",
       headers: HEADERS(),
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    console.log("PostEx book response:", JSON.stringify(data));
+    if (process.env.DEBUG_LOGGING === "true") {
+      console.log("PostEx book response:", JSON.stringify(data));
+    }
 
     const postexMsg      = data?.message || data?.dist?.message || data?.error || null;
     const trackingNumber = data?.dist?.trackingNumber || data?.trackingNumber;
