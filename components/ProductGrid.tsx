@@ -6,9 +6,8 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ZararProduct } from "@/data/products";
 
-// Dynamically loaded — Firebase (~460 KB) only downloads when Quick Buy is tapped,
-// not on initial page load. The modal pre-warms the Firestore connection while the
-// user fills in their details, so submit is fast.
+// Dynamically loaded so the modal's chunk only downloads when Quick Buy is
+// tapped, not on initial page load.
 const QuickBuyModal = dynamic(() => import("@/components/QuickBuyModal"), { ssr: false });
 
 interface Props {
@@ -22,7 +21,7 @@ export default function ProductGrid({ products, columns = 4 }: Props) {
   useEffect(() => {
     // Silently prefetch the QuickBuyModal chunk 3 s after mount — user is
     // still browsing products, so by the time they tap Quick Buy the chunk
-    // (and Firebase SDK) is already cached and the modal opens instantly.
+    // is already cached and the modal opens instantly.
     const t = setTimeout(() => { import("@/components/QuickBuyModal"); }, 3000);
     return () => clearTimeout(t);
   }, []);

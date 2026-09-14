@@ -2,13 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { ZararProduct } from "@/data/products";
-import { db } from "@/lib/firebase";
-import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { DELIVERY_FEE, type ZararProduct } from "@/data/products";
 import { trackEvent, capiFirePurchase, sha256 } from "@/lib/tiktok";
 
 const WA = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER ?? "923000000000";
-const DELIVERY_FEE = 200;
 
 interface Props {
   product: ZararProduct | null;
@@ -55,10 +52,8 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
       };
       trackEvent("AddToCart", viewProps);
       trackEvent("InitiateCheckout", viewProps);
-      // Pre-warm Firestore + prefetch the confirmation page chunk while
-      // the user fills in their details. doc() triggers SDK init; prefetch
-      // ensures router.push("/order-confirmed") navigates instantly.
-      doc(collection(db, "orders"));
+      // Prefetch the confirmation page chunk while the user fills in their
+      // details so router.push("/order-confirmed") navigates instantly.
       router.prefetch("/order-confirmed");
       const raf = requestAnimationFrame(() => setVisible(true));
       return () => cancelAnimationFrame(raf);
@@ -108,17 +103,16 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
     setErrors({});
     setStatus("submitting");
     try {
+      // Displayed/estimated total only — the real price is computed
+      // server-side in create-order.js and is never trusted from here.
       const finalPrice  = product!.price + DELIVERY_FEE;
       const productName = `${product!.name} | ${product!.seriesName}`;
-
-      // Allocate doc ref synchronously — stable ID, zero network calls
-      const orderRef = doc(collection(db, "orders"));
-      const orderId  = orderRef.id;
+      const eventId     = crypto.randomUUID();
 
       // ── Navigate IMMEDIATELY — zero awaits before this line ──────────────
       // The /order-confirmed chunk is already prefetched (done when modal opened),
       // so this transition is instant for the user.
-      const params = new URLSearchParams({ e: orderId, p: product!.id, n: productName, v: String(finalPrice) });
+      const params = new URLSearchParams({ e: eventId, p: product!.id, n: productName, v: String(finalPrice) });
       router.push(`/order-confirmed?${params.toString()}`);
 
       // ── Everything below runs in background, after navigation ─────────────
@@ -128,7 +122,7 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
 
       // Hash phone + fire CAPI (server-side TikTok event) in background
       sha256(phoneSnap).then(hashedPhone =>
-        capiFirePurchase(orderId, {
+        capiFirePurchase(eventId, {
           content_id:   product!.id,
           content_name: productName,
           content_type: "product",
@@ -137,17 +131,23 @@ export default function QuickBuyModal({ product: incomingProduct, onClose }: Pro
         }, { phone: hashedPhone })
       );
 
-      // Firestore write — uses connection pre-warmed when modal opened
-      setDoc(orderRef, {
-        productId: product!.id, productName,
-        price: finalPrice, quantity: 1,
-        name: nameSnap, phone: phoneSnap, city: citySnap, address: addrSnap,
-        status: "pending",
-        createdAt: serverTimestamp(),
+      // Order creation happens server-side: the function looks up the
+      // authoritative catalog price itself rather than trusting a price
+      // sent from the browser.
+      fetch("/.netlify/functions/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: product!.id,
+          quantity: 1,
+          name: nameSnap, phone: phoneSnap, city: citySnap, address: addrSnap,
+        }),
+      }).then(res => {
+        if (!res.ok) throw new Error("create-order failed");
       }).catch(() => {
         try {
           sessionStorage.setItem("zaraar_pending_order", JSON.stringify({
-            orderId, productName, finalPrice,
+            productId: product!.id, productName, finalPrice,
             name: nameSnap, phone: phoneSnap, city: citySnap, address: addrSnap,
             at: new Date().toISOString(),
           }));

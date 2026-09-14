@@ -4,6 +4,9 @@
 
 [functions]
   directory = "netlify/functions"
+  # esbuild so create-order.js can `require("../../data/products")` directly
+  # (a .ts file) without a separate build step.
+  node_bundler = "esbuild"
 
 [functions."postex-sync"]
   schedule = "*/30 * * * *"

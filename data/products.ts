@@ -375,3 +375,8 @@ const _CATALOG: ZararProduct[] = [
 const ACTIVE_SERIES: SeriesId[] = ["exp", "hbl", "tst", "ppd", "pp"];
 export const SERIES = _SERIES.filter(s => ACTIVE_SERIES.includes(s.id));
 export const CATALOG = _CATALOG.filter(p => ACTIVE_SERIES.includes(p.seriesId));
+
+// Flat COD delivery surcharge added on top of the product price at checkout.
+// Shared by the storefront (display) and the create-order function
+// (authoritative total), so it only needs to change in one place.
+export const DELIVERY_FEE = 200;
